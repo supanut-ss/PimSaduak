@@ -2,6 +2,13 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import './App.css';
+import {
+  MAX_IMPORT_ROWS,
+  downloadImportTemplate,
+  getCodeError,
+  getImportedRowErrors,
+  parseLabelFile,
+} from './importUtils';
 
 const initialForm = {
   recipientName: '',
@@ -72,15 +79,17 @@ function SectionHeading({ number, title, description }) {
   );
 }
 
-function getCodeError(codeType, codeValue) {
-  if (codeType === 'none') return '';
-  if (!codeValue.trim()) return 'กรอกข้อมูลที่ต้องการเข้ารหัสก่อนพิมพ์';
-  if (codeType === 'qr' && codeValue.length > 180) return 'QR Code รองรับข้อมูลไม่เกิน 180 ตัวอักษร';
-  if (codeType === 'barcode' && codeValue.length > 30) return 'Barcode รองรับไม่เกิน 30 ตัวอักษร';
-  if (codeType === 'barcode' && !/^[\x20-\x7E]+$/.test(codeValue)) {
-    return 'Barcode รองรับเฉพาะภาษาอังกฤษ ตัวเลข และสัญลักษณ์มาตรฐาน';
-  }
-  return '';
+async function generateQrDataUrl(value) {
+  const dataUrl = await QRCode.toDataURL(value, {
+    errorCorrectionLevel: 'M',
+    margin: 1,
+    width: 512,
+    color: { dark: '#111111', light: '#ffffff' },
+  });
+  const image = new Image();
+  image.src = dataUrl;
+  if (typeof image.decode === 'function') await image.decode();
+  return dataUrl;
 }
 
 function Barcode({ value }) {
@@ -110,8 +119,237 @@ function Barcode({ value }) {
   return <svg ref={svgRef} className="shipping-label__barcode" role="img" aria-label={`Barcode ${value}`} />;
 }
 
-function ShippingLabel({ form, className = '', codeType = 'none', codeValue = '', qrDataUrl = '' }) {
+const batchFieldDefinitions = [
+  { name: 'recipientName', label: 'ชื่อผู้รับ', placeholder: 'ชื่อ–นามสกุล', required: true },
+  { name: 'recipientPhone', label: 'เบอร์โทรผู้รับ', placeholder: '08X-XXX-XXXX', type: 'tel' },
+  { name: 'recipientAddress', label: 'ที่อยู่ผู้รับ', placeholder: 'บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์', multiline: true, required: true },
+  { name: 'senderName', label: 'ชื่อผู้ส่ง', placeholder: 'ชื่อร้านหรือชื่อผู้ส่ง' },
+  { name: 'senderPhone', label: 'เบอร์โทรผู้ส่ง', placeholder: '08X-XXX-XXXX', type: 'tel' },
+  { name: 'senderAddress', label: 'ที่อยู่ผู้ส่ง', placeholder: 'บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์', multiline: true },
+];
+
+function BatchRowFields({ item, onChange }) {
+  return (
+    <div className="batch-row__editor">
+      <div className="field-stack">
+        {batchFieldDefinitions.map((field) => {
+          const id = `${item.id}-${field.name}`;
+          return (
+            <label className="field" htmlFor={id} key={field.name}>
+              <span className="field__label">
+                {field.label}
+                {field.required && <span className="field__required">จำเป็น</span>}
+              </span>
+              {field.multiline ? (
+                <textarea
+                  id={id}
+                  name={`${item.id}-${field.name}`}
+                  rows="2"
+                  value={item.form[field.name]}
+                  onChange={(event) => onChange(item.id, field.name, event.target.value)}
+                  placeholder={field.placeholder}
+                />
+              ) : (
+                <input
+                  id={id}
+                  name={`${item.id}-${field.name}`}
+                  type={field.type ?? 'text'}
+                  value={item.form[field.name]}
+                  onChange={(event) => onChange(item.id, field.name, event.target.value)}
+                  placeholder={field.placeholder}
+                  inputMode={field.type === 'tel' ? 'tel' : undefined}
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+
+      <div className="batch-row__code-fields">
+        <label className="field" htmlFor={`${item.id}-codeType`}>
+          <span className="field__label">ประเภทโค้ด</span>
+          <select
+            id={`${item.id}-codeType`}
+            name={`${item.id}-codeType`}
+            value={item.form.codeType}
+            onChange={(event) => onChange(item.id, 'codeType', event.target.value)}
+          >
+            <option value="none">ไม่ใส่</option>
+            <option value="qr">QR Code</option>
+            <option value="barcode">Barcode</option>
+          </select>
+        </label>
+        <label className="field" htmlFor={`${item.id}-codeValue`}>
+          <span className="field__label">ข้อมูลโค้ด</span>
+          <input
+            id={`${item.id}-codeValue`}
+            name={`${item.id}-codeValue`}
+            type="text"
+            value={item.form.codeValue}
+            onChange={(event) => onChange(item.id, 'codeValue', event.target.value)}
+            placeholder="เว้นว่างเมื่อไม่ใช้โค้ด"
+            maxLength={item.form.codeType === 'barcode' ? 30 : item.form.codeType === 'qr' ? 180 : 512}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
+function BatchImportSection({
+  rows,
+  fileName,
+  errorMessage,
+  notice,
+  importing,
+  includedCount,
+  invalidCount,
+  fileInputRef,
+  onFileChange,
+  onDownloadTemplate,
+  onClear,
+  onToggleEdit,
+  onToggleIncluded,
+  onFieldChange,
+}) {
+  return (
+    <section className="form-section batch-import-section">
+      <SectionHeading
+        number="01"
+        title="นำเข้ารายการพัสดุ"
+        description="หนึ่งแถวต่อหนึ่งฉลาก ตรวจและแก้ไขข้อมูลก่อนพิมพ์"
+      />
+
+      <div className="upload-card">
+        <input
+          ref={fileInputRef}
+          className="file-input"
+          id="parcel-import-file"
+          type="file"
+          accept=".xlsx,.xls,.csv,.txt,.tsv,text/csv,text/tab-separated-values"
+          onChange={onFileChange}
+          disabled={importing}
+          aria-describedby="import-file-hint"
+        />
+        <label className={`upload-button${importing ? ' upload-button--disabled' : ''}`} htmlFor="parcel-import-file">
+          <span className="upload-button__icon" aria-hidden="true">↑</span>
+          {importing ? 'กำลังอ่านไฟล์…' : 'เลือกไฟล์จากอุปกรณ์'}
+        </label>
+        <p className="upload-card__hint" id="import-file-hint">Excel (.xlsx, .xls), CSV หรือ Text/TSV · ไม่เกิน 10 MB และ {MAX_IMPORT_ROWS} รายการต่อไฟล์</p>
+      </div>
+
+      <div className="template-card">
+        <div>
+          <strong>ยังไม่มีไฟล์?</strong>
+          <p>ดาวน์โหลดเทมเพลตพร้อมตัวอย่าง และเก็บเบอร์โทรเป็นข้อความ</p>
+        </div>
+        <div className="template-actions" aria-label="ดาวน์โหลดเทมเพลต">
+          <button type="button" onClick={() => onDownloadTemplate('xlsx')}>Excel</button>
+          <button type="button" onClick={() => onDownloadTemplate('csv')}>CSV</button>
+          <button type="button" onClick={() => onDownloadTemplate('txt')}>Text</button>
+        </div>
+      </div>
+
+      {errorMessage && <p className="import-alert" role="alert">{errorMessage}</p>}
+      {notice && <p className="import-notice" role="status">{notice}</p>}
+      {importing && <p className="import-progress" role="status">กำลังตรวจหัวตารางและข้อมูลในไฟล์…</p>}
+
+      {fileName && rows.length > 0 && (
+        <div className="batch-review">
+          <div className="batch-review__heading">
+            <div>
+              <h3>ตรวจรายการ</h3>
+              <p className="batch-review__filename">{fileName}</p>
+            </div>
+            <button className="text-button" type="button" onClick={onClear}>ล้างรายการ</button>
+          </div>
+          <div className="batch-stats" aria-live="polite">
+            <span><strong>{includedCount}</strong> เลือกพิมพ์</span>
+            <span><strong>{invalidCount}</strong> ต้องแก้</span>
+            <span><strong>{rows.length}</strong> รวม</span>
+          </div>
+
+          <div className="batch-row-list">
+            {rows.map((item) => (
+              <BatchImportRow
+                key={item.id}
+                item={item}
+                onToggleEdit={onToggleEdit}
+                onToggleIncluded={onToggleIncluded}
+                onFieldChange={onFieldChange}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {!fileName && !errorMessage && !importing && (
+        <div className="import-empty-state">
+          <strong>เตรียมไฟล์ได้ในไม่กี่ขั้นตอน</strong>
+          <ol>
+            <li>ดาวน์โหลดเทมเพลตด้านบน หรือใช้หัวคอลัมน์ชื่อผู้รับและที่อยู่ผู้รับ</li>
+            <li>ใส่ข้อมูลหนึ่งพัสดุต่อแถว เบอร์โทรควรตั้งเป็นข้อความ</li>
+            <li>เลือกไฟล์ แล้วตรวจแถวที่ต้องแก้ก่อนพิมพ์</li>
+          </ol>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function BatchImportRow({ item, onToggleEdit, onToggleIncluded, onFieldChange }) {
+  const errors = getImportedRowErrors(item.form, item.typeError);
+  const isValid = errors.length === 0;
+
+  return (
+    <article className={`batch-row${isValid ? '' : ' batch-row--invalid'}`}>
+      <div className="batch-row__topline">
+        <span className="batch-row__number">แถว {item.rowNumber}</span>
+        <span className={`batch-row__status${isValid ? ' batch-row__status--valid' : ' batch-row__status--invalid'}`}>
+          {isValid ? (item.included ? 'พร้อมพิมพ์' : 'ไม่นำไปพิมพ์') : `ต้องแก้ ${errors.length} จุด`}
+        </span>
+      </div>
+
+      <div className="batch-row__summary">
+        <strong>{item.form.recipientName || 'ยังไม่ระบุชื่อผู้รับ'}</strong>
+        <span>{item.form.recipientPhone || 'ไม่มีเบอร์โทรผู้รับ'}</span>
+        <p>{item.form.recipientAddress || 'ยังไม่ระบุที่อยู่ผู้รับ'}</p>
+      </div>
+
+      {errors.length > 0 && (
+        <ul className="batch-row__errors" aria-label={`ปัญหาของแถว ${item.rowNumber}`}>
+          {errors.map((error) => <li key={error}>{error}</li>)}
+        </ul>
+      )}
+
+      <div className="batch-row__actions">
+        <label className="batch-include">
+          <input
+            type="checkbox"
+            checked={item.included && isValid}
+            disabled={!isValid}
+            onChange={() => onToggleIncluded(item.id)}
+          />
+          <span>รวมในการพิมพ์</span>
+        </label>
+        <button
+          className="text-button"
+          type="button"
+          aria-expanded={item.editing}
+          onClick={() => onToggleEdit(item.id)}
+        >
+          {item.editing ? 'ปิดการแก้ไข' : 'แก้ข้อมูล'}
+        </button>
+      </div>
+
+      {item.editing && <BatchRowFields item={item} onChange={onFieldChange} />}
+    </article>
+  );
+}
+
+function ShippingLabel({ form, className = '', codeType = 'none', codeValue = '', qrDataUrl = '', idPrefix }) {
   const isPreview = className.includes('--preview');
+  const labelId = idPrefix ?? (className || 'preview');
   const recipientName = form.recipientName.trim() || (isPreview ? 'ชื่อผู้รับ' : '');
   const recipientPhone = form.recipientPhone.trim();
   const recipientAddress = form.recipientAddress.trim() || (isPreview ? 'ที่อยู่ผู้รับ' : '');
@@ -124,7 +362,10 @@ function ShippingLabel({ form, className = '', codeType = 'none', codeValue = ''
   const showCodePreview = isPreview && codeType !== 'none';
 
   return (
-    <article className={`shipping-label ${className}`} aria-label="ตัวอย่างใบแปะหน้าพัสดุ">
+    <article
+      className={`shipping-label ${className}`}
+      aria-label={isPreview ? 'ตัวอย่างใบแปะหน้าพัสดุ' : 'ใบแปะหน้าพัสดุสำหรับพิมพ์'}
+    >
       <header className="shipping-label__header">
         <span className="shipping-label__mark" aria-hidden="true">
           <svg viewBox="0 0 28 28" fill="none">
@@ -136,8 +377,8 @@ function ShippingLabel({ form, className = '', codeType = 'none', codeValue = ''
         <span className="shipping-label__document">ใบแปะหน้าพัสดุ</span>
       </header>
 
-      <section className="shipping-label__recipient" aria-labelledby={`${className || 'preview'}-recipient-title`}>
-        <h3 id={`${className || 'preview'}-recipient-title`} className="shipping-label__eyebrow">ส่งถึง</h3>
+      <section className="shipping-label__recipient" aria-labelledby={`${labelId}-recipient-title`}>
+        <h3 id={`${labelId}-recipient-title`} className="shipping-label__eyebrow">ส่งถึง</h3>
         <p className="shipping-label__name">{recipientName}</p>
         {recipientPhone && <p className="shipping-label__phone">โทร. {recipientPhone}</p>}
         <p className="shipping-label__address">{recipientAddress}</p>
@@ -156,8 +397,8 @@ function ShippingLabel({ form, className = '', codeType = 'none', codeValue = ''
       {(hasSender || isPreview) && (
         <>
           <div className="shipping-label__rule" aria-hidden="true" />
-          <section className="shipping-label__sender" aria-labelledby={`${className || 'preview'}-sender-title`}>
-            <h3 id={`${className || 'preview'}-sender-title`} className="shipping-label__eyebrow">ผู้ส่ง</h3>
+          <section className="shipping-label__sender" aria-labelledby={`${labelId}-sender-title`}>
+            <h3 id={`${labelId}-sender-title`} className="shipping-label__eyebrow">ผู้ส่ง</h3>
             {senderName && <p className="shipping-label__sender-name">{senderName}</p>}
             {senderPhone && <p className="shipping-label__sender-phone">โทร. {senderPhone}</p>}
             {senderAddress && <p className="shipping-label__sender-address">{senderAddress}</p>}
@@ -179,11 +420,42 @@ function App() {
   const [codeType, setCodeType] = useState('none');
   const [codeValue, setCodeValue] = useState('');
   const [qrResult, setQrResult] = useState({ value: '', dataUrl: '' });
+  const [entryMode, setEntryMode] = useState('single');
+  const [batchRows, setBatchRows] = useState([]);
+  const [batchFileName, setBatchFileName] = useState('');
+  const [batchError, setBatchError] = useState('');
+  const [batchNotice, setBatchNotice] = useState('');
+  const [isImporting, setIsImporting] = useState(false);
+  const [isPreparingPrint, setIsPreparingPrint] = useState(false);
+  const [batchPreviewQrResult, setBatchPreviewQrResult] = useState({ key: '', dataUrl: '' });
+  const [printBatch, setPrintBatch] = useState([]);
+  const [printBatchReady, setPrintBatchReady] = useState(false);
+  const fileInputRef = useRef(null);
   const hasRecipient = Boolean(form.recipientName.trim() && form.recipientAddress.trim());
   const codeError = getCodeError(codeType, codeValue);
   const qrDataUrl = qrResult.value === codeValue ? qrResult.dataUrl : '';
   const codeReady = codeType === 'none'
     || (!codeError && (codeType === 'barcode' || Boolean(qrDataUrl)));
+  const analyzedBatchRows = batchRows.map((row) => ({
+    ...row,
+    errors: getImportedRowErrors(row.form, row.typeError),
+  }));
+  const includedBatchRows = analyzedBatchRows.filter((row) => row.included && row.errors.length === 0);
+  const invalidBatchCount = analyzedBatchRows.filter((row) => row.errors.length > 0).length;
+  const batchPreviewRow = includedBatchRows[0]
+    ?? analyzedBatchRows.find((row) => row.errors.length === 0)
+    ?? analyzedBatchRows[0]
+    ?? null;
+  const batchPreviewKey = batchPreviewRow
+    ? `${batchPreviewRow.id}\u001f${batchPreviewRow.form.codeType}\u001f${batchPreviewRow.form.codeValue}`
+    : '';
+  const batchPreviewQrDataUrl = batchPreviewQrResult.key === batchPreviewKey
+    ? batchPreviewQrResult.dataUrl
+    : '';
+
+  useEffect(() => {
+    if (entryMode === 'batch') import('xlsx').catch(() => {});
+  }, [entryMode]);
 
   useEffect(() => {
     if (codeType !== 'qr' || codeError) {
@@ -193,12 +465,7 @@ function App() {
 
     let cancelled = false;
     setQrResult({ value: codeValue, dataUrl: '' });
-    QRCode.toDataURL(codeValue, {
-      errorCorrectionLevel: 'M',
-      margin: 1,
-      width: 512,
-      color: { dark: '#111111', light: '#ffffff' },
-    })
+    generateQrDataUrl(codeValue)
       .then((dataUrl) => {
         if (!cancelled) setQrResult({ value: codeValue, dataUrl });
       })
@@ -209,19 +476,156 @@ function App() {
     return () => { cancelled = true; };
   }, [codeType, codeValue, codeError]);
 
+  useEffect(() => {
+    if (entryMode !== 'batch' || !batchPreviewRow || batchPreviewRow.form.codeType !== 'qr'
+      || getCodeError(batchPreviewRow.form.codeType, batchPreviewRow.form.codeValue)) {
+      setBatchPreviewQrResult({ key: '', dataUrl: '' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    const { codeValue: previewCodeValue } = batchPreviewRow.form;
+    setBatchPreviewQrResult({ key: batchPreviewKey, dataUrl: '' });
+    generateQrDataUrl(previewCodeValue)
+      .then((dataUrl) => {
+        if (!cancelled) setBatchPreviewQrResult({ key: batchPreviewKey, dataUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setBatchPreviewQrResult({ key: batchPreviewKey, dataUrl: '' });
+      });
+
+    return () => { cancelled = true; };
+  }, [entryMode, batchPreviewKey]);
+
+  useLayoutEffect(() => {
+    if (!printBatchReady) return;
+    setPrintBatchReady(false);
+    window.print();
+  }, [printBatchReady]);
+
+  async function handleFileChange(event) {
+    const file = event.currentTarget.files?.[0];
+    event.currentTarget.value = '';
+    if (!file) return;
+
+    setBatchRows([]);
+    setBatchFileName(file.name);
+    setBatchError('');
+    setBatchNotice('');
+    setIsImporting(true);
+    try {
+      const importedRows = await parseLabelFile(file);
+      setBatchRows(importedRows);
+      const validCount = importedRows.filter((row) => getImportedRowErrors(row.form, row.typeError).length === 0).length;
+      const invalidCount = importedRows.length - validCount;
+      setBatchNotice(invalidCount
+        ? `อ่าน ${importedRows.length} แถวแล้ว · มี ${invalidCount} แถวที่ต้องแก้ก่อนเลือกพิมพ์`
+        : `อ่าน ${importedRows.length} แถวแล้ว พร้อมตรวจและเลือกพิมพ์`);
+    } catch (error) {
+      setBatchFileName('');
+      setBatchError(error instanceof Error ? error.message : 'อ่านไฟล์ไม่ได้ กรุณาตรวจไฟล์แล้วลองอีกครั้ง');
+    } finally {
+      setIsImporting(false);
+    }
+  }
+
+  function handleBatchFieldChange(id, field, value) {
+    setBatchRows((current) => current.map((row) => (
+      row.id === id
+        ? {
+            ...row,
+            form: { ...row.form, [field]: value },
+            typeError: field === 'codeType'
+              || (field === 'codeValue' && !value.trim() && [
+                'ระบุประเภทโค้ดเมื่อมีข้อมูลโค้ด',
+                'ลบข้อมูลโค้ดหรือเลือก QR Code หรือ Barcode',
+              ].includes(row.typeError))
+              ? ''
+              : row.typeError,
+          }
+        : row
+    )));
+    setBatchNotice('');
+  }
+
+  function toggleBatchEdit(id) {
+    setBatchRows((current) => current.map((row) => (
+      row.id === id ? { ...row, editing: !row.editing } : row
+    )));
+  }
+
+  function toggleBatchIncluded(id) {
+    setBatchRows((current) => current.map((row) => (
+      row.id === id ? { ...row, included: !row.included } : row
+    )));
+    setBatchNotice('');
+  }
+
+  function clearBatch() {
+    setBatchRows([]);
+    setBatchFileName('');
+    setBatchError('');
+    setBatchNotice('');
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }
+
+  async function handleTemplateDownload(format) {
+    try {
+      await downloadImportTemplate(format);
+      const formatName = { xlsx: 'Excel', csv: 'CSV', txt: 'Text' }[format] ?? 'ไฟล์';
+      setBatchNotice(`ดาวน์โหลดเทมเพลต ${formatName} แล้ว`);
+    } catch {
+      setBatchNotice('สร้างเทมเพลตไม่สำเร็จ กรุณาลองอีกครั้ง');
+    }
+  }
+
   function handleChange(event) {
     const { name, value } = event.target;
     setForm((current) => ({ ...current, [name]: value }));
   }
 
-  function handlePrint(event) {
+  async function handlePrint(event) {
     event.preventDefault();
-    if (codeError || (codeType === 'qr' && !qrDataUrl)) {
-      document.getElementById('code-value')?.focus();
+    if (entryMode === 'single') {
+      if (codeError || (codeType === 'qr' && !qrDataUrl)) {
+        document.getElementById('code-value')?.focus();
+        return;
+      }
+      window.print();
       return;
     }
-    window.print();
+
+    if (includedBatchRows.length === 0) {
+      setBatchNotice(batchRows.length
+        ? 'แก้ข้อมูลที่มีปัญหา แล้วเลือกอย่างน้อยหนึ่งแถวสำหรับพิมพ์'
+        : 'นำเข้าไฟล์ก่อน แล้วเลือกแถวที่ต้องการพิมพ์');
+      return;
+    }
+
+    setBatchNotice('');
+    setIsPreparingPrint(true);
+    try {
+      const labels = await Promise.all(includedBatchRows.map(async (row) => ({
+        form: row.form,
+        codeType: row.form.codeType,
+        codeValue: row.form.codeValue,
+        qrDataUrl: row.form.codeType === 'qr'
+          ? await generateQrDataUrl(row.form.codeValue)
+          : '',
+      })));
+      setPrintBatch(labels);
+      setPrintBatchReady(true);
+    } catch {
+      setBatchNotice('สร้าง QR Code บางรายการไม่สำเร็จ กรุณาตรวจข้อมูลโค้ดแล้วลองอีกครั้ง');
+    } finally {
+      setIsPreparingPrint(false);
+    }
   }
+
+  const previewForm = entryMode === 'single' ? form : (batchPreviewRow?.form ?? initialForm);
+  const previewCodeType = entryMode === 'single' ? codeType : (previewForm.codeType ?? 'none');
+  const previewCodeValue = entryMode === 'single' ? codeValue : (previewForm.codeValue ?? '');
+  const previewQrDataUrl = entryMode === 'single' ? qrDataUrl : batchPreviewQrDataUrl;
 
   return (
     <>
@@ -250,7 +654,7 @@ function App() {
             <div>
               <p className="page-heading__kicker">เริ่มต้นได้ในไม่กี่ขั้นตอน</p>
               <h1>ทำใบแปะหน้าพัสดุ</h1>
-              <p className="page-heading__description">กรอกข้อมูลผู้รับและผู้ส่ง แล้วตรวจตัวอย่างก่อนพิมพ์</p>
+              <p className="page-heading__description">กรอกข้อมูลเองหรือเลือกไฟล์รายการ แล้วตรวจฉลากก่อนพิมพ์</p>
             </div>
             <div className="page-meta" aria-label="ขนาดฉลากปัจจุบัน">
               <span className="page-meta__icon" aria-hidden="true">
@@ -259,12 +663,33 @@ function App() {
                   <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </span>
-              <span><strong>1 ใบ</strong><small>10 × 15 ซม.</small></span>
+              <span><strong>{entryMode === 'single' ? 1 : includedBatchRows.length} ใบ</strong><small>10 × 15 ซม.</small></span>
             </div>
           </div>
 
           <div className="work-grid">
             <form className="form-panel" id="label-form" onSubmit={handlePrint}>
+              <div className="entry-mode-toggle" role="group" aria-label="เลือกรูปแบบการทำฉลาก">
+                <button
+                  className={entryMode === 'single' ? 'entry-mode-toggle__option entry-mode-toggle__option--selected' : 'entry-mode-toggle__option'}
+                  type="button"
+                  aria-pressed={entryMode === 'single'}
+                  onClick={() => { setEntryMode('single'); setBatchNotice(''); }}
+                >
+                  พิมพ์ทีละใบ
+                </button>
+                <button
+                  className={entryMode === 'batch' ? 'entry-mode-toggle__option entry-mode-toggle__option--selected' : 'entry-mode-toggle__option'}
+                  type="button"
+                  aria-pressed={entryMode === 'batch'}
+                  onClick={() => { setEntryMode('batch'); setBatchNotice(''); }}
+                >
+                  นำเข้าหลายรายการ
+                </button>
+              </div>
+
+              {entryMode === 'single' ? (
+              <>
               <section className="form-section form-section--recipient">
                 <SectionHeading
                   number="01"
@@ -393,20 +818,52 @@ function App() {
                 <span className="form-footnote__sparkle" aria-hidden="true">✳</span>
                 <span>กรอกข้อมูลผู้รับให้ครบก่อนพิมพ์</span>
               </div>
+              </>
+              ) : (
+                <BatchImportSection
+                  rows={analyzedBatchRows}
+                  fileName={batchFileName}
+                  errorMessage={batchError}
+                  notice={batchNotice}
+                  importing={isImporting}
+                  includedCount={includedBatchRows.length}
+                  invalidCount={invalidBatchCount}
+                  fileInputRef={fileInputRef}
+                  onFileChange={handleFileChange}
+                  onDownloadTemplate={handleTemplateDownload}
+                  onClear={clearBatch}
+                  onToggleEdit={toggleBatchEdit}
+                  onToggleIncluded={toggleBatchIncluded}
+                  onFieldChange={handleBatchFieldChange}
+                />
+              )}
             </form>
 
             <aside className="preview-panel" aria-label="ตัวอย่างและคำสั่งพิมพ์">
               <div className="preview-panel__heading">
                 <div>
-                  <h2>ตัวอย่างฉลาก</h2>
-                  <p>ปรับตามข้อมูลที่กรอกทันที</p>
+                  <h2>{entryMode === 'single' ? 'ตัวอย่างฉลาก' : 'ตัวอย่างรายการ'}</h2>
+                  <p>
+                    {entryMode === 'single'
+                      ? 'ปรับตามข้อมูลที่กรอกทันที'
+                      : batchPreviewRow
+                        ? `แสดงแถว ${batchPreviewRow.rowNumber} จาก ${batchRows.length} รายการ`
+                        : 'นำเข้าไฟล์เพื่อดูตัวอย่างฉลาก'}
+                  </p>
                 </div>
                 <span className="live-pill"><span />LIVE</span>
               </div>
 
               <div className="preview-stage">
                 <div className="preview-stage__tape" aria-hidden="true" />
-                <ShippingLabel form={form} className="shipping-label--preview" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} />
+                <ShippingLabel
+                  form={previewForm}
+                  className="shipping-label--preview"
+                  codeType={previewCodeType}
+                  codeValue={previewCodeValue}
+                  qrDataUrl={previewQrDataUrl}
+                  idPrefix="preview-label"
+                />
               </div>
 
               <div className="preview-spec">
@@ -415,25 +872,45 @@ function App() {
               </div>
 
               <div className="print-action">
-                <button className="print-button" type="submit" form="label-form">
+                <button className="print-button" type="submit" form="label-form" disabled={entryMode === 'batch' && isPreparingPrint}>
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7v-7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     <path d="M17 11.5h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
                   </svg>
-                  พิมพ์ใบแปะหน้าพัสดุ
+                  {entryMode === 'single'
+                    ? 'พิมพ์ใบแปะหน้าพัสดุ'
+                    : isPreparingPrint
+                      ? 'กำลังเตรียมฉลาก…'
+                      : `พิมพ์ ${includedBatchRows.length} ใบ`}
                   <span className="print-button__arrow" aria-hidden="true">↗</span>
                 </button>
               </div>
-              <p className="print-hint">ตั้งค่าขนาดกระดาษเป็น 10 × 15 ซม. ในหน้าต่างพิมพ์</p>
-              <div className={`ready-note${hasRecipient && codeReady ? ' ready-note--complete' : ''}`} aria-live="polite">
-                <span className="ready-note__icon" aria-hidden="true">{hasRecipient && codeReady ? '✓' : 'i'}</span>
-                {!hasRecipient
-                  ? 'กรอกชื่อและที่อยู่ผู้รับเพื่อเริ่มพิมพ์'
-                  : codeError
-                    ? 'ตรวจข้อมูลรหัสก่อนพิมพ์'
-                    : !codeReady
-                      ? 'กำลังสร้าง QR Code…'
-                      : 'ข้อมูลพร้อมพิมพ์'}
+              <p className="print-hint">
+                {entryMode === 'single'
+                  ? 'ตั้งค่าขนาดกระดาษเป็น 10 × 15 ซม. ในหน้าต่างพิมพ์'
+                  : 'พิมพ์เฉพาะแถวที่เลือกและผ่านการตรวจข้อมูล'}
+              </p>
+              <div className={`ready-note${(entryMode === 'single' ? hasRecipient && codeReady : includedBatchRows.length > 0) ? ' ready-note--complete' : ''}`} aria-live="polite">
+                <span className="ready-note__icon" aria-hidden="true">
+                  {(entryMode === 'single' ? hasRecipient && codeReady : includedBatchRows.length > 0) ? '✓' : 'i'}
+                </span>
+                {entryMode === 'single'
+                  ? !hasRecipient
+                    ? 'กรอกชื่อและที่อยู่ผู้รับเพื่อเริ่มพิมพ์'
+                    : codeError
+                      ? 'ตรวจข้อมูลรหัสก่อนพิมพ์'
+                      : !codeReady
+                        ? 'กำลังสร้าง QR Code…'
+                        : 'ข้อมูลพร้อมพิมพ์'
+                  : batchRows.length === 0
+                    ? 'นำเข้าไฟล์เพื่อเริ่มจัดรายการพิมพ์'
+                    : isPreparingPrint
+                      ? 'กำลังเตรียมฉลากสำหรับพิมพ์…'
+                    : includedBatchRows.length > 0
+                      ? invalidBatchCount > 0
+                        ? `พร้อมพิมพ์ ${includedBatchRows.length} ใบ · ข้าม ${invalidBatchCount} แถวที่มีปัญหา`
+                        : `ข้อมูลพร้อมพิมพ์ ${includedBatchRows.length} ใบ`
+                      : 'แก้แถวที่มีปัญหา แล้วเลือกอย่างน้อยหนึ่งแถว'}
               </div>
             </aside>
           </div>
@@ -441,12 +918,24 @@ function App() {
 
         <footer className="app-footer">
           <span>ทำฉลากง่าย ๆ แล้วไปส่งพัสดุกัน</span>
-          <span>PimSaduak · 01 / 01</span>
+          <span>PimSaduak · {entryMode === 'single' ? '01 / 01' : 'นำเข้าหลายรายการ'}</span>
         </footer>
       </div>
 
       <main className="print-sheet" aria-label="ฉลากสำหรับพิมพ์">
-        <ShippingLabel form={form} className="shipping-label--print" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} />
+        {entryMode === 'single' ? (
+          <ShippingLabel form={form} className="shipping-label--print" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} idPrefix="print-label" />
+        ) : printBatch.map((label, index) => (
+          <ShippingLabel
+            key={`print-label-${index}`}
+            form={label.form}
+            className="shipping-label--print"
+            codeType={label.codeType}
+            codeValue={label.codeValue}
+            qrDataUrl={label.qrDataUrl}
+            idPrefix={`print-label-${index + 1}`}
+          />
+        ))}
       </main>
     </>
   );

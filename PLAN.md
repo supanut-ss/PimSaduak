@@ -60,12 +60,13 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Barcodes use Code 128, accept printable ASCII up to 30 characters, and show validation before printing.
 - Verification: `npm run build` succeeds; browser checks confirmed both preview and print markup contain the selected code, generated QR output is shared by both labels, and widths from 320 px through 1440 px have no horizontal overflow.
 
-### Step 3 — File import and templates
+### Step 3 — File import and templates (complete)
 
-- Import Excel, CSV, and tab-delimited text files in the browser.
-- Provide downloadable templates with example rows; preserve phone numbers as text.
-- Show a preview, identify invalid rows, and let the user correct or exclude them before printing.
-- Acceptance: valid rows become labels; invalid rows are explained before the print action.
+- Import `.xlsx`, `.xls`, `.csv`, `.tsv`, and tab-delimited `.txt` files locally in the browser, with a 10 MB file limit and a 200-row batch limit.
+- Provide downloadable Excel, CSV, and text templates with example rows; keep phone numbers as text so leading zeroes survive import.
+- Show imported rows, explain validation errors, and let the user edit or exclude rows before printing selected labels.
+- Acceptance: valid rows become labels; invalid rows are explained and cannot be selected until corrected.
+- Verification: `npm test` and `npm run build` pass; browser checks confirmed CSV, Excel, and text imports, editing and selecting rows, template actions, and no horizontal overflow from 320 px through 1440 px.
 
 ### Step 4 — Label sizes
 
