@@ -153,7 +153,7 @@ function App() {
           </a>
           <div className="local-note">
             <span className="local-note__dot" aria-hidden="true" />
-            <span>ข้อมูลอยู่ในเบราว์เซอร์ของคุณ</span>
+            <span className="local-note__text">เก็บข้อมูลในเครื่องนี้</span>
           </div>
         </header>
 
@@ -165,7 +165,12 @@ function App() {
               <p className="page-heading__description">กรอกข้อมูลผู้รับและผู้ส่ง แล้วตรวจตัวอย่างก่อนพิมพ์</p>
             </div>
             <div className="page-meta" aria-label="ขนาดฉลากปัจจุบัน">
-              <span className="page-meta__icon" aria-hidden="true">▱</span>
+              <span className="page-meta__icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path d="M5 4.75h14v14.5H5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                  <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                </svg>
+              </span>
               <span><strong>1 ใบ</strong><small>10 × 15 ซม.</small></span>
             </div>
           </div>
@@ -263,14 +268,16 @@ function App() {
                 <strong>10 × 15 ซม.</strong>
               </div>
 
-              <button className="print-button" type="submit" form="label-form">
-                <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                  <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7v-7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M17 11.5h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
-                </svg>
-                พิมพ์ใบแปะหน้าพัสดุ
-                <span className="print-button__arrow" aria-hidden="true">↗</span>
-              </button>
+              <div className="print-action">
+                <button className="print-button" type="submit" form="label-form">
+                  <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7v-7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                    <path d="M17 11.5h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
+                  </svg>
+                  พิมพ์ใบแปะหน้าพัสดุ
+                  <span className="print-button__arrow" aria-hidden="true">↗</span>
+                </button>
+              </div>
               <p className="print-hint">ตั้งค่าขนาดกระดาษเป็น 10 × 15 ซม. ในหน้าต่างพิมพ์</p>
               <div className={`ready-note${hasRecipient ? ' ready-note--complete' : ''}`} aria-live="polite">
                 <span className="ready-note__icon" aria-hidden="true">{hasRecipient ? '✓' : 'i'}</span>

@@ -7,6 +7,7 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 ## Product decisions
 
 - Keep label entry, preview, and the main action together on one responsive page.
+- Use a mobile-first layout, safe-area-aware sticky header, and persistent print action on phones and portrait tablets; use a split workspace on wider screens.
 - Keep the label itself white with dark, print-friendly text; use pastel colors for the surrounding interface and action cues.
 - Start with a 10 × 15 cm label. Later presets: 10 × 10 cm, 8 × 5 cm, and A6 (10.5 × 14.8 cm), plus a custom size in centimeters or inches.
 - Use browser storage for local print history. Prefer IndexedDB for batches and label snapshots when that step is implemented.
@@ -43,6 +44,12 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Print only the 10 × 15 cm label, with required recipient name and address.
 - Acceptance: `npm run build` succeeds; editing fields updates the preview; browser printing hides the app UI and sizes the label to 100 × 150 mm.
 - Commit as `feat: add single parcel label printing`.
+
+### Step 1.1 — Cross-device experience (complete)
+
+- Adapt the form, preview, and print action for phone, tablet portrait/landscape, and desktop widths.
+- Keep touch controls at least 48 px high and account for notches and gesture areas.
+- Acceptance: checked 320 px and 375 px phones, 768 px tablet portrait, 1024 px tablet landscape, a short desktop viewport, and 1440 px desktop. No horizontal overflow appeared; the print action stayed available above the safe-area inset on compact screens.
 
 ### Step 2 — Optional QR and barcode
 
