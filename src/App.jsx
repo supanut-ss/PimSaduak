@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import JsBarcode from 'jsbarcode';
+import QRCode from 'qrcode';
 import './App.css';
 
 const initialForm = {
@@ -70,7 +72,45 @@ function SectionHeading({ number, title, description }) {
   );
 }
 
-function ShippingLabel({ form, className = '' }) {
+function getCodeError(codeType, codeValue) {
+  if (codeType === 'none') return '';
+  if (!codeValue.trim()) return 'กรอกข้อมูลที่ต้องการเข้ารหัสก่อนพิมพ์';
+  if (codeType === 'qr' && codeValue.length > 180) return 'QR Code รองรับข้อมูลไม่เกิน 180 ตัวอักษร';
+  if (codeType === 'barcode' && codeValue.length > 30) return 'Barcode รองรับไม่เกิน 30 ตัวอักษร';
+  if (codeType === 'barcode' && !/^[\x20-\x7E]+$/.test(codeValue)) {
+    return 'Barcode รองรับเฉพาะภาษาอังกฤษ ตัวเลข และสัญลักษณ์มาตรฐาน';
+  }
+  return '';
+}
+
+function Barcode({ value }) {
+  const svgRef = useRef(null);
+
+  useLayoutEffect(() => {
+    if (!svgRef.current || !value) return;
+
+    try {
+      JsBarcode(svgRef.current, value, {
+        format: 'CODE128',
+        width: 1.4,
+        height: 42,
+        displayValue: true,
+        font: 'Arial',
+        fontSize: 10,
+        textMargin: 2,
+        margin: 0,
+        lineColor: '#111111',
+        background: '#ffffff',
+      });
+    } catch {
+      svgRef.current.replaceChildren();
+    }
+  }, [value]);
+
+  return <svg ref={svgRef} className="shipping-label__barcode" role="img" aria-label={`Barcode ${value}`} />;
+}
+
+function ShippingLabel({ form, className = '', codeType = 'none', codeValue = '', qrDataUrl = '' }) {
   const isPreview = className.includes('--preview');
   const recipientName = form.recipientName.trim() || (isPreview ? 'ชื่อผู้รับ' : '');
   const recipientPhone = form.recipientPhone.trim();
@@ -79,6 +119,9 @@ function ShippingLabel({ form, className = '' }) {
   const senderPhone = form.senderPhone.trim();
   const senderAddress = form.senderAddress.trim() || (isPreview ? 'ที่อยู่ผู้ส่ง' : '');
   const hasSender = Boolean(senderName || senderPhone || senderAddress);
+  const codeError = getCodeError(codeType, codeValue);
+  const hasCode = !codeError && (codeType === 'qr' ? Boolean(qrDataUrl) : codeType === 'barcode');
+  const showCodePreview = isPreview && codeType !== 'none';
 
   return (
     <article className={`shipping-label ${className}`} aria-label="ตัวอย่างใบแปะหน้าพัสดุ">
@@ -99,6 +142,16 @@ function ShippingLabel({ form, className = '' }) {
         {recipientPhone && <p className="shipping-label__phone">โทร. {recipientPhone}</p>}
         <p className="shipping-label__address">{recipientAddress}</p>
       </section>
+
+      {(hasCode || showCodePreview) && (
+        <section className={`shipping-label__code shipping-label__code--${codeType}`} aria-label={codeType === 'qr' ? 'QR Code' : 'Barcode'}>
+          {codeType === 'qr' && qrDataUrl
+            ? <img src={qrDataUrl} alt="QR Code" />
+            : codeType === 'barcode' && !codeError
+              ? <Barcode value={codeValue} />
+              : isPreview && <span className="shipping-label__code-pending">กรอกข้อมูลเพื่อสร้าง{codeType === 'qr' ? ' QR Code' : ' Barcode'}</span>}
+        </section>
+      )}
 
       {(hasSender || isPreview) && (
         <>
@@ -123,7 +176,38 @@ function ShippingLabel({ form, className = '' }) {
 
 function App() {
   const [form, setForm] = useState(initialForm);
+  const [codeType, setCodeType] = useState('none');
+  const [codeValue, setCodeValue] = useState('');
+  const [qrResult, setQrResult] = useState({ value: '', dataUrl: '' });
   const hasRecipient = Boolean(form.recipientName.trim() && form.recipientAddress.trim());
+  const codeError = getCodeError(codeType, codeValue);
+  const qrDataUrl = qrResult.value === codeValue ? qrResult.dataUrl : '';
+  const codeReady = codeType === 'none'
+    || (!codeError && (codeType === 'barcode' || Boolean(qrDataUrl)));
+
+  useEffect(() => {
+    if (codeType !== 'qr' || codeError) {
+      setQrResult({ value: '', dataUrl: '' });
+      return undefined;
+    }
+
+    let cancelled = false;
+    setQrResult({ value: codeValue, dataUrl: '' });
+    QRCode.toDataURL(codeValue, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 512,
+      color: { dark: '#111111', light: '#ffffff' },
+    })
+      .then((dataUrl) => {
+        if (!cancelled) setQrResult({ value: codeValue, dataUrl });
+      })
+      .catch(() => {
+        if (!cancelled) setQrResult({ value: codeValue, dataUrl: '' });
+      });
+
+    return () => { cancelled = true; };
+  }, [codeType, codeValue, codeError]);
 
   function handleChange(event) {
     const { name, value } = event.target;
@@ -132,6 +216,10 @@ function App() {
 
   function handlePrint(event) {
     event.preventDefault();
+    if (codeError || (codeType === 'qr' && !qrDataUrl)) {
+      document.getElementById('code-value')?.focus();
+      return;
+    }
     window.print();
   }
 
@@ -243,6 +331,64 @@ function App() {
                 </div>
               </section>
 
+              <section className="form-section form-section--code">
+                <SectionHeading
+                  number="03"
+                  title="QR Code หรือ Barcode"
+                  description="เพิ่มรหัสติดตามหรือข้อมูลที่ต้องการลงบนฉลาก"
+                />
+                <div className="code-options" role="radiogroup" aria-label="เลือกรูปแบบรหัสบนฉลาก">
+                  {[
+                    { value: 'none', label: 'ไม่ใส่' },
+                    { value: 'qr', label: 'QR Code' },
+                    { value: 'barcode', label: 'Barcode' },
+                  ].map((option) => (
+                    <label className={`code-option${codeType === option.value ? ' code-option--selected' : ''}`} key={option.value}>
+                      <input
+                        type="radio"
+                        name="codeType"
+                        value={option.value}
+                        checked={codeType === option.value}
+                        onChange={() => setCodeType(option.value)}
+                      />
+                      <span>{option.label}</span>
+                    </label>
+                  ))}
+                </div>
+
+                {codeType === 'none' ? (
+                  <p className="code-empty-state">ฉลากนี้จะไม่แสดง QR Code หรือ Barcode</p>
+                ) : (
+                  <div className="code-entry">
+                    <label className="field" htmlFor="code-value">
+                      <span className="field__label">ข้อมูลสำหรับ {codeType === 'qr' ? 'QR Code' : 'Barcode'}<span className="field__required">จำเป็น</span></span>
+                      <input
+                        id="code-value"
+                        name="codeValue"
+                        type="text"
+                        value={codeValue}
+                        onChange={(event) => setCodeValue(event.target.value)}
+                        placeholder={codeType === 'qr' ? 'เช่น https://tracking.example/12345' : 'เช่น TH123456789'}
+                        maxLength={codeType === 'qr' ? 180 : 30}
+                        pattern={codeType === 'barcode' ? '[ -~]{1,30}' : undefined}
+                        title={codeType === 'barcode' ? 'ใช้ตัวอักษรอังกฤษ ตัวเลข และสัญลักษณ์ ASCII ไม่เกิน 30 ตัว' : undefined}
+                        autoComplete="off"
+                        spellCheck="false"
+                        required
+                        aria-invalid={Boolean(codeError)}
+                        aria-describedby="code-value-hint code-value-error"
+                      />
+                    </label>
+                    <p className="code-field__hint" id="code-value-hint">
+                      {codeType === 'qr'
+                        ? 'ใส่ข้อความหรือลิงก์ได้ไม่เกิน 180 ตัวอักษร'
+                        : 'ใช้ภาษาอังกฤษ ตัวเลข และสัญลักษณ์มาตรฐาน ไม่เกิน 30 ตัวอักษร'}
+                    </p>
+                    <p className="code-field__error" id="code-value-error" role="alert" hidden={!codeError}>{codeError}</p>
+                  </div>
+                )}
+              </section>
+
               <div className="form-footnote">
                 <span className="form-footnote__sparkle" aria-hidden="true">✳</span>
                 <span>กรอกข้อมูลผู้รับให้ครบก่อนพิมพ์</span>
@@ -260,7 +406,7 @@ function App() {
 
               <div className="preview-stage">
                 <div className="preview-stage__tape" aria-hidden="true" />
-                <ShippingLabel form={form} className="shipping-label--preview" />
+                <ShippingLabel form={form} className="shipping-label--preview" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} />
               </div>
 
               <div className="preview-spec">
@@ -279,9 +425,15 @@ function App() {
                 </button>
               </div>
               <p className="print-hint">ตั้งค่าขนาดกระดาษเป็น 10 × 15 ซม. ในหน้าต่างพิมพ์</p>
-              <div className={`ready-note${hasRecipient ? ' ready-note--complete' : ''}`} aria-live="polite">
-                <span className="ready-note__icon" aria-hidden="true">{hasRecipient ? '✓' : 'i'}</span>
-                {hasRecipient ? 'ข้อมูลผู้รับพร้อมพิมพ์' : 'กรอกชื่อและที่อยู่ผู้รับเพื่อเริ่มพิมพ์'}
+              <div className={`ready-note${hasRecipient && codeReady ? ' ready-note--complete' : ''}`} aria-live="polite">
+                <span className="ready-note__icon" aria-hidden="true">{hasRecipient && codeReady ? '✓' : 'i'}</span>
+                {!hasRecipient
+                  ? 'กรอกชื่อและที่อยู่ผู้รับเพื่อเริ่มพิมพ์'
+                  : codeError
+                    ? 'ตรวจข้อมูลรหัสก่อนพิมพ์'
+                    : !codeReady
+                      ? 'กำลังสร้าง QR Code…'
+                      : 'ข้อมูลพร้อมพิมพ์'}
               </div>
             </aside>
           </div>
@@ -294,7 +446,7 @@ function App() {
       </div>
 
       <main className="print-sheet" aria-label="ฉลากสำหรับพิมพ์">
-        <ShippingLabel form={form} className="shipping-label--print" />
+        <ShippingLabel form={form} className="shipping-label--print" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} />
       </main>
     </>
   );

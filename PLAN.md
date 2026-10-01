@@ -51,11 +51,14 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Keep touch controls at least 48 px high and account for notches and gesture areas.
 - Acceptance: checked 320 px and 375 px phones, 768 px tablet portrait, 1024 px tablet landscape, a short desktop viewport, and 1440 px desktop. No horizontal overflow appeared; the print action stayed available above the safe-area inset on compact screens.
 
-### Step 2 — Optional QR and barcode
+### Step 2 — Optional QR and barcode (complete)
 
 - Add a choice of no code, QR code, or barcode and an input for its value.
 - Keep generated code data local; support one code type per label.
 - Acceptance: preview and printed output show the selected code and encode the entered value.
+- QR codes are generated in the browser as 512 px PNG data URLs and support up to 180 characters, including Thai text.
+- Barcodes use Code 128, accept printable ASCII up to 30 characters, and show validation before printing.
+- Verification: `npm run build` succeeds; browser checks confirmed both preview and print markup contain the selected code, generated QR output is shared by both labels, and widths from 320 px through 1440 px have no horizontal overflow.
 
 ### Step 3 — File import and templates
 
