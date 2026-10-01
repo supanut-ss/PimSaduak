@@ -9,7 +9,7 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Keep label entry, preview, and the main action together on one responsive page.
 - Use a mobile-first layout, safe-area-aware sticky header, and persistent print action on phones and portrait tablets; use a split workspace on wider screens.
 - Keep the label itself white with dark, print-friendly text; use pastel colors for the surrounding interface and action cues.
-- Start with a 10 × 15 cm label. Later presets: 10 × 10 cm, 8 × 5 cm, and A6 (10.5 × 14.8 cm), plus a custom size in centimeters or inches.
+- Start with a 10 × 15 cm label. Presets also include 10 × 10 cm, 10 × 20 cm, and A6 (10.5 × 14.8 cm), plus a custom size in centimeters or inches. Use 10 × 20 cm instead of 8 × 5 cm because 8 × 5 cm does not leave enough height for full sender and recipient addresses.
 - Use browser storage for local print history. Prefer IndexedDB for batches and label snapshots when that step is implemented.
 - Treat the browser print dialog as a print request. The browser cannot confirm that a physical label was successfully printed.
 
@@ -68,11 +68,13 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Acceptance: valid rows become labels; invalid rows are explained and cannot be selected until corrected.
 - Verification: `npm test` and `npm run build` pass; browser checks confirmed CSV, Excel, and text imports, editing and selecting rows, template actions, and no horizontal overflow from 320 px through 1440 px.
 
-### Step 4 — Label sizes
+### Step 4 — Label sizes (complete)
 
-- Add standard presets and custom width/height in centimeters or inches.
-- Reflect selected dimensions in the preview and print stylesheet.
+- Add 10 × 15 cm, 10 × 10 cm, 10 × 20 cm, and A6 presets, plus custom width and height in centimeters or inches.
+- Keep custom dimensions within 6–50 cm wide and 8.5–50 cm high so the complete address layout remains readable.
+- Update the preview aspect ratio, print label, and dynamic `@page` size together; scale label content to fit the selected dimensions.
 - Acceptance: the preview aspect ratio and print page size follow the selected dimensions.
+- Verification: `npm test` and `npm run build` pass; browser checks confirmed centimeter/inch conversion, a 4 × 6 inch print rule, validation for unsupported dimensions, and no horizontal overflow at 320 px, 768 px, and 1024 px.
 
 ### Step 5 — Local history and reprint
 

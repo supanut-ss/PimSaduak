@@ -9,6 +9,20 @@ import {
   getImportedRowErrors,
   parseLabelFile,
 } from './importUtils';
+import {
+  CUSTOM_LABEL_PRESET_ID,
+  DEFAULT_LABEL_PRESET_ID,
+  LABEL_PRESETS,
+  MAX_LABEL_DIMENSION_MM,
+  MIN_LABEL_HEIGHT_MM,
+  MIN_LABEL_WIDTH_MM,
+  formatDimensionLimit,
+  formatLabelSize,
+  fromMillimeters,
+  getLabelScale,
+  toMillimeters,
+  validateCustomLabelSize,
+} from './labelSizes';
 
 const initialForm = {
   recipientName: '',
@@ -67,15 +81,111 @@ function AddressField({ label, name, value, onChange, placeholder, required = fa
   );
 }
 
-function SectionHeading({ number, title, description }) {
+function SectionHeading({ number, title, description, headingId }) {
   return (
     <div className="section-heading">
       <span className="section-heading__number" aria-hidden="true">{number}</span>
       <div>
-        <h2>{title}</h2>
+        <h2 id={headingId}>{title}</h2>
         <p>{description}</p>
       </div>
     </div>
+  );
+}
+
+function LabelSizeControls({
+  presetId,
+  unit,
+  customWidth,
+  customHeight,
+  sizeError,
+  onPresetChange,
+  onUnitChange,
+  onDimensionChange,
+}) {
+  const minWidth = formatDimensionLimit(MIN_LABEL_WIDTH_MM, unit, 'min');
+  const minHeight = formatDimensionLimit(MIN_LABEL_HEIGHT_MM, unit, 'min');
+  const maxDimension = formatDimensionLimit(MAX_LABEL_DIMENSION_MM, unit, 'max');
+
+  return (
+    <section className="form-section form-section--size" aria-labelledby="label-size-heading">
+      <SectionHeading
+        number="01"
+        title="ขนาดฉลาก"
+        description="เลือกขนาดมาตรฐาน หรือกำหนดตามกระดาษของเครื่องพิมพ์"
+        headingId="label-size-heading"
+      />
+      <label className="field" htmlFor="label-preset">
+        <span className="field__label">ขนาดกระดาษ</span>
+        <select id="label-preset" name="labelPreset" value={presetId} onChange={onPresetChange}>
+          {LABEL_PRESETS.map((preset) => (
+            <option key={preset.id} value={preset.id}>{preset.label}</option>
+          ))}
+        </select>
+      </label>
+
+      {presetId === CUSTOM_LABEL_PRESET_ID && (
+        <>
+          <div className="label-size-fields">
+            <label className="field" htmlFor="custom-label-width">
+              <span className="field__label">กว้าง</span>
+              <input
+                id="custom-label-width"
+                name="customLabelWidth"
+                type="number"
+                min={minWidth}
+                max={maxDimension}
+                step={unit === 'cm' ? '0.1' : '0.01'}
+                inputMode="decimal"
+                value={customWidth}
+                onChange={(event) => onDimensionChange('width', event.target.value)}
+                aria-invalid={Boolean(sizeError?.widthValid === false)}
+                aria-describedby="label-size-hint label-size-error"
+                required
+              />
+            </label>
+            <label className="field" htmlFor="custom-label-height">
+              <span className="field__label">สูง</span>
+              <input
+                id="custom-label-height"
+                name="customLabelHeight"
+                type="number"
+                min={minHeight}
+                max={maxDimension}
+                step={unit === 'cm' ? '0.1' : '0.01'}
+                inputMode="decimal"
+                value={customHeight}
+                onChange={(event) => onDimensionChange('height', event.target.value)}
+                aria-invalid={Boolean(sizeError?.heightValid === false)}
+                aria-describedby="label-size-hint label-size-error"
+                required
+              />
+            </label>
+            <label className="field" htmlFor="custom-label-unit">
+              <span className="field__label">หน่วย</span>
+              <select
+                id="custom-label-unit"
+                name="customLabelUnit"
+                value={unit}
+                disabled={!sizeError?.valid}
+                onChange={onUnitChange}
+              >
+                <option value="cm">ซม.</option>
+                <option value="in">นิ้ว</option>
+              </select>
+            </label>
+          </div>
+          <p className="label-size-hint" id="label-size-hint">
+            กว้าง {minWidth}–{maxDimension} และสูง {minHeight}–{maxDimension} {unit === 'cm' ? 'ซม.' : 'นิ้ว'}
+          </p>
+          <p className="label-size-error" id="label-size-error" role="alert" aria-live="polite">
+            {!sizeError?.widthValid && `ความกว้างต้องอยู่ระหว่าง ${minWidth}–${maxDimension} ${unit === 'cm' ? 'ซม.' : 'นิ้ว'}`}
+            {!sizeError?.widthValid && !sizeError?.heightValid && ' · '}
+            {!sizeError?.heightValid && `ความสูงต้องอยู่ระหว่าง ${minHeight}–${maxDimension} ${unit === 'cm' ? 'ซม.' : 'นิ้ว'}`}
+          </p>
+        </>
+      )}
+    </section>
   );
 }
 
@@ -215,7 +325,7 @@ function BatchImportSection({
   return (
     <section className="form-section batch-import-section">
       <SectionHeading
-        number="01"
+        number="02"
         title="นำเข้ารายการพัสดุ"
         description="หนึ่งแถวต่อหนึ่งฉลาก ตรวจและแก้ไขข้อมูลก่อนพิมพ์"
       />
@@ -347,7 +457,17 @@ function BatchImportRow({ item, onToggleEdit, onToggleIncluded, onFieldChange })
   );
 }
 
-function ShippingLabel({ form, className = '', codeType = 'none', codeValue = '', qrDataUrl = '', idPrefix }) {
+function ShippingLabel({
+  form,
+  className = '',
+  codeType = 'none',
+  codeValue = '',
+  qrDataUrl = '',
+  idPrefix,
+  widthMm = 100,
+  heightMm = 150,
+  labelScale = 1,
+}) {
   const isPreview = className.includes('--preview');
   const labelId = idPrefix ?? (className || 'preview');
   const recipientName = form.recipientName.trim() || (isPreview ? 'ชื่อผู้รับ' : '');
@@ -361,56 +481,69 @@ function ShippingLabel({ form, className = '', codeType = 'none', codeValue = ''
   const hasCode = !codeError && (codeType === 'qr' ? Boolean(qrDataUrl) : codeType === 'barcode');
   const showCodePreview = isPreview && codeType !== 'none';
 
+  const labelStyle = {
+    aspectRatio: `${widthMm} / ${heightMm}`,
+    ...(!isPreview && { width: `${widthMm}mm`, height: `${heightMm}mm` }),
+  };
+  const layoutStyle = {
+    width: `${100 / labelScale}%`,
+    height: `${100 / labelScale}%`,
+    zoom: labelScale,
+  };
+
   return (
     <article
       className={`shipping-label ${className}`}
       aria-label={isPreview ? 'ตัวอย่างใบแปะหน้าพัสดุ' : 'ใบแปะหน้าพัสดุสำหรับพิมพ์'}
+      style={labelStyle}
     >
-      <header className="shipping-label__header">
-        <span className="shipping-label__mark" aria-hidden="true">
-          <svg viewBox="0 0 28 28" fill="none">
-            <path d="M4 8.2 14 3l10 5.2v11.6L14 25 4 19.8V8.2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-            <path d="m4.5 8.5 9.5 5 9.5-5M14 14v10.2" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
-          </svg>
-        </span>
-        <span className="shipping-label__wordmark">PimSaduak</span>
-        <span className="shipping-label__document">ใบแปะหน้าพัสดุ</span>
-      </header>
+      <div className="shipping-label__layout" style={layoutStyle}>
+        <header className="shipping-label__header">
+          <span className="shipping-label__mark" aria-hidden="true">
+            <svg viewBox="0 0 28 28" fill="none">
+              <path d="M4 8.2 14 3l10 5.2v11.6L14 25 4 19.8V8.2Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+              <path d="m4.5 8.5 9.5 5 9.5-5M14 14v10.2" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
+            </svg>
+          </span>
+          <span className="shipping-label__wordmark">PimSaduak</span>
+          <span className="shipping-label__document">ใบแปะหน้าพัสดุ</span>
+        </header>
 
-      <section className="shipping-label__recipient" aria-labelledby={`${labelId}-recipient-title`}>
-        <h3 id={`${labelId}-recipient-title`} className="shipping-label__eyebrow">ส่งถึง</h3>
-        <p className="shipping-label__name">{recipientName}</p>
-        {recipientPhone && <p className="shipping-label__phone">โทร. {recipientPhone}</p>}
-        <p className="shipping-label__address">{recipientAddress}</p>
-      </section>
-
-      {(hasCode || showCodePreview) && (
-        <section className={`shipping-label__code shipping-label__code--${codeType}`} aria-label={codeType === 'qr' ? 'QR Code' : 'Barcode'}>
-          {codeType === 'qr' && qrDataUrl
-            ? <img src={qrDataUrl} alt="QR Code" />
-            : codeType === 'barcode' && !codeError
-              ? <Barcode value={codeValue} />
-              : isPreview && <span className="shipping-label__code-pending">กรอกข้อมูลเพื่อสร้าง{codeType === 'qr' ? ' QR Code' : ' Barcode'}</span>}
+        <section className="shipping-label__recipient" aria-labelledby={`${labelId}-recipient-title`}>
+          <h3 id={`${labelId}-recipient-title`} className="shipping-label__eyebrow">ส่งถึง</h3>
+          <p className="shipping-label__name">{recipientName}</p>
+          {recipientPhone && <p className="shipping-label__phone">โทร. {recipientPhone}</p>}
+          <p className="shipping-label__address">{recipientAddress}</p>
         </section>
-      )}
 
-      {(hasSender || isPreview) && (
-        <>
-          <div className="shipping-label__rule" aria-hidden="true" />
-          <section className="shipping-label__sender" aria-labelledby={`${labelId}-sender-title`}>
-            <h3 id={`${labelId}-sender-title`} className="shipping-label__eyebrow">ผู้ส่ง</h3>
-            {senderName && <p className="shipping-label__sender-name">{senderName}</p>}
-            {senderPhone && <p className="shipping-label__sender-phone">โทร. {senderPhone}</p>}
-            {senderAddress && <p className="shipping-label__sender-address">{senderAddress}</p>}
+        {(hasCode || showCodePreview) && (
+          <section className={`shipping-label__code shipping-label__code--${codeType}`} aria-label={codeType === 'qr' ? 'QR Code' : 'Barcode'}>
+            {codeType === 'qr' && qrDataUrl
+              ? <img src={qrDataUrl} alt="QR Code" />
+              : codeType === 'barcode' && !codeError
+                ? <Barcode value={codeValue} />
+                : isPreview && <span className="shipping-label__code-pending">กรอกข้อมูลเพื่อสร้าง{codeType === 'qr' ? ' QR Code' : ' Barcode'}</span>}
           </section>
-        </>
-      )}
+        )}
 
-      <footer className="shipping-label__footer">
-        <span>ขอบคุณที่อุดหนุน</span>
-        <span className="shipping-label__footer-dot" aria-hidden="true" />
-        <span>ส่งด้วยความใส่ใจ</span>
-      </footer>
+        {(hasSender || isPreview) && (
+          <>
+            <div className="shipping-label__rule" aria-hidden="true" />
+            <section className="shipping-label__sender" aria-labelledby={`${labelId}-sender-title`}>
+              <h3 id={`${labelId}-sender-title`} className="shipping-label__eyebrow">ผู้ส่ง</h3>
+              {senderName && <p className="shipping-label__sender-name">{senderName}</p>}
+              {senderPhone && <p className="shipping-label__sender-phone">โทร. {senderPhone}</p>}
+              {senderAddress && <p className="shipping-label__sender-address">{senderAddress}</p>}
+            </section>
+          </>
+        )}
+
+        <footer className="shipping-label__footer">
+          <span>ขอบคุณที่อุดหนุน</span>
+          <span className="shipping-label__footer-dot" aria-hidden="true" />
+          <span>ส่งด้วยความใส่ใจ</span>
+        </footer>
+      </div>
     </article>
   );
 }
@@ -421,6 +554,12 @@ function App() {
   const [codeValue, setCodeValue] = useState('');
   const [qrResult, setQrResult] = useState({ value: '', dataUrl: '' });
   const [entryMode, setEntryMode] = useState('single');
+  const [labelPresetId, setLabelPresetId] = useState(DEFAULT_LABEL_PRESET_ID);
+  const [customLabelUnit, setCustomLabelUnit] = useState('cm');
+  const [customLabelWidth, setCustomLabelWidth] = useState('10');
+  const [customLabelHeight, setCustomLabelHeight] = useState('15');
+  const [customDimensionsMm, setCustomDimensionsMm] = useState({ widthMm: 100, heightMm: 150 });
+  const [hasEditedCustomSize, setHasEditedCustomSize] = useState(false);
   const [batchRows, setBatchRows] = useState([]);
   const [batchFileName, setBatchFileName] = useState('');
   const [batchError, setBatchError] = useState('');
@@ -431,6 +570,22 @@ function App() {
   const [printBatch, setPrintBatch] = useState([]);
   const [printBatchReady, setPrintBatchReady] = useState(false);
   const fileInputRef = useRef(null);
+  const selectedLabelPreset = LABEL_PRESETS.find((preset) => preset.id === labelPresetId);
+  const customSizeValidation = validateCustomLabelSize(customLabelWidth, customLabelHeight, customLabelUnit);
+  const labelDimensions = labelPresetId === CUSTOM_LABEL_PRESET_ID
+    ? customDimensionsMm
+    : selectedLabelPreset;
+  const labelWidthMm = labelDimensions.widthMm;
+  const labelHeightMm = labelDimensions.heightMm;
+  const labelScale = getLabelScale(labelWidthMm, labelHeightMm);
+  const labelSizeValid = labelPresetId !== CUSTOM_LABEL_PRESET_ID || customSizeValidation.valid;
+  const labelSizeText = formatLabelSize(
+    labelWidthMm,
+    labelHeightMm,
+    labelPresetId === CUSTOM_LABEL_PRESET_ID ? customLabelUnit : 'cm',
+  );
+  const labelWidthCss = String(Number(labelWidthMm.toFixed(2)));
+  const labelHeightCss = String(Number(labelHeightMm.toFixed(2)));
   const hasRecipient = Boolean(form.recipientName.trim() && form.recipientAddress.trim());
   const codeError = getCodeError(codeType, codeValue);
   const qrDataUrl = qrResult.value === codeValue ? qrResult.dataUrl : '';
@@ -584,8 +739,48 @@ function App() {
     setForm((current) => ({ ...current, [name]: value }));
   }
 
+  function handleLabelPresetChange(event) {
+    const nextPresetId = event.target.value;
+    if (nextPresetId === CUSTOM_LABEL_PRESET_ID
+      && labelPresetId !== CUSTOM_LABEL_PRESET_ID
+      && !hasEditedCustomSize) {
+      const preset = LABEL_PRESETS.find((item) => item.id === labelPresetId) ?? LABEL_PRESETS[0];
+      setCustomDimensionsMm({ widthMm: preset.widthMm, heightMm: preset.heightMm });
+      setCustomLabelWidth(fromMillimeters(preset.widthMm, customLabelUnit));
+      setCustomLabelHeight(fromMillimeters(preset.heightMm, customLabelUnit));
+    }
+    setLabelPresetId(nextPresetId);
+  }
+
+  function handleCustomDimensionChange(field, value) {
+    const nextWidth = field === 'width' ? value : customLabelWidth;
+    const nextHeight = field === 'height' ? value : customLabelHeight;
+    const nextDimensions = validateCustomLabelSize(nextWidth, nextHeight, customLabelUnit);
+    setHasEditedCustomSize(true);
+    if (field === 'width') setCustomLabelWidth(value);
+    if (field === 'height') setCustomLabelHeight(value);
+    if (field === 'width' && nextDimensions.widthValid) {
+      setCustomDimensionsMm((current) => ({ ...current, widthMm: nextDimensions.widthMm }));
+    }
+    if (field === 'height' && nextDimensions.heightValid) {
+      setCustomDimensionsMm((current) => ({ ...current, heightMm: nextDimensions.heightMm }));
+    }
+  }
+
+  function handleCustomUnitChange(event) {
+    const nextUnit = event.target.value;
+    if (!customSizeValidation.valid) return;
+    setCustomLabelWidth(fromMillimeters(customDimensionsMm.widthMm, nextUnit));
+    setCustomLabelHeight(fromMillimeters(customDimensionsMm.heightMm, nextUnit));
+    setCustomLabelUnit(nextUnit);
+  }
+
   async function handlePrint(event) {
     event.preventDefault();
+    if (!labelSizeValid) {
+      document.getElementById(customSizeValidation.widthValid ? 'custom-label-height' : 'custom-label-width')?.focus();
+      return;
+    }
     if (entryMode === 'single') {
       if (codeError || (codeType === 'qr' && !qrDataUrl)) {
         document.getElementById('code-value')?.focus();
@@ -629,6 +824,20 @@ function App() {
 
   return (
     <>
+      <style>{`
+        @page {
+          size: ${labelWidthCss}mm ${labelHeightCss}mm;
+          margin: 0;
+        }
+
+        @media print {
+          html, body, #root, .print-sheet {
+            width: ${labelWidthCss}mm;
+            min-width: ${labelWidthCss}mm;
+            min-height: ${labelHeightCss}mm;
+          }
+        }
+      `}</style>
       <div className="screen-ui">
         <header className="topbar">
           <a className="brand" href="#main" aria-label="PimSaduak หน้าหลัก">
@@ -663,7 +872,7 @@ function App() {
                   <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                 </svg>
               </span>
-              <span><strong>{entryMode === 'single' ? 1 : includedBatchRows.length} ใบ</strong><small>10 × 15 ซม.</small></span>
+              <span><strong>{entryMode === 'single' ? 1 : includedBatchRows.length} ใบ</strong><small>{labelSizeText}</small></span>
             </div>
           </div>
 
@@ -688,11 +897,22 @@ function App() {
                 </button>
               </div>
 
+              <LabelSizeControls
+                presetId={labelPresetId}
+                unit={customLabelUnit}
+                customWidth={customLabelWidth}
+                customHeight={customLabelHeight}
+                sizeError={customSizeValidation}
+                onPresetChange={handleLabelPresetChange}
+                onUnitChange={handleCustomUnitChange}
+                onDimensionChange={handleCustomDimensionChange}
+              />
+
               {entryMode === 'single' ? (
               <>
               <section className="form-section form-section--recipient">
                 <SectionHeading
-                  number="01"
+                  number="02"
                   title="ผู้รับพัสดุ"
                   description="ข้อมูลนี้จะแสดงเด่นบนฉลาก"
                 />
@@ -726,7 +946,7 @@ function App() {
 
               <section className="form-section form-section--sender">
                 <SectionHeading
-                  number="02"
+                  number="03"
                   title="ผู้ส่ง"
                   description="เพิ่มข้อมูลเพื่อให้ส่งคืนได้หากจัดส่งไม่สำเร็จ"
                 />
@@ -758,7 +978,7 @@ function App() {
 
               <section className="form-section form-section--code">
                 <SectionHeading
-                  number="03"
+                  number="04"
                   title="QR Code หรือ Barcode"
                   description="เพิ่มรหัสติดตามหรือข้อมูลที่ต้องการลงบนฉลาก"
                 />
@@ -863,16 +1083,19 @@ function App() {
                   codeValue={previewCodeValue}
                   qrDataUrl={previewQrDataUrl}
                   idPrefix="preview-label"
+                  widthMm={labelWidthMm}
+                  heightMm={labelHeightMm}
+                  labelScale={labelScale}
                 />
               </div>
 
               <div className="preview-spec">
                 <span>ขนาดกระดาษ</span>
-                <strong>10 × 15 ซม.</strong>
+                <strong>{labelSizeText}</strong>
               </div>
 
               <div className="print-action">
-                <button className="print-button" type="submit" form="label-form" disabled={entryMode === 'batch' && isPreparingPrint}>
+                <button className="print-button" type="submit" form="label-form" disabled={!labelSizeValid || (entryMode === 'batch' && isPreparingPrint)}>
                   <svg viewBox="0 0 24 24" fill="none" aria-hidden="true">
                     <path d="M7 8V3h10v5M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2M7 14h10v7H7v-7Z" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
                     <path d="M17 11.5h.01" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" />
@@ -887,8 +1110,8 @@ function App() {
               </div>
               <p className="print-hint">
                 {entryMode === 'single'
-                  ? 'ตั้งค่าขนาดกระดาษเป็น 10 × 15 ซม. ในหน้าต่างพิมพ์'
-                  : 'พิมพ์เฉพาะแถวที่เลือกและผ่านการตรวจข้อมูล'}
+                  ? `ตั้งค่ากระดาษเป็น ${labelSizeText} ในหน้าต่างพิมพ์`
+                  : `พิมพ์เฉพาะแถวที่เลือก · ตั้งค่ากระดาษ ${labelSizeText}`}
               </p>
               <div className={`ready-note${(entryMode === 'single' ? hasRecipient && codeReady : includedBatchRows.length > 0) ? ' ready-note--complete' : ''}`} aria-live="polite">
                 <span className="ready-note__icon" aria-hidden="true">
@@ -924,7 +1147,17 @@ function App() {
 
       <main className="print-sheet" aria-label="ฉลากสำหรับพิมพ์">
         {entryMode === 'single' ? (
-          <ShippingLabel form={form} className="shipping-label--print" codeType={codeType} codeValue={codeValue} qrDataUrl={qrDataUrl} idPrefix="print-label" />
+          <ShippingLabel
+            form={form}
+            className="shipping-label--print"
+            codeType={codeType}
+            codeValue={codeValue}
+            qrDataUrl={qrDataUrl}
+            idPrefix="print-label"
+            widthMm={labelWidthMm}
+            heightMm={labelHeightMm}
+            labelScale={labelScale}
+          />
         ) : printBatch.map((label, index) => (
           <ShippingLabel
             key={`print-label-${index}`}
@@ -934,6 +1167,9 @@ function App() {
             codeValue={label.codeValue}
             qrDataUrl={label.qrDataUrl}
             idPrefix={`print-label-${index + 1}`}
+            widthMm={labelWidthMm}
+            heightMm={labelHeightMm}
+            labelScale={labelScale}
           />
         ))}
       </main>

@@ -234,6 +234,33 @@
   outline-offset: 2px;
 }
 
+.label-size-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) 88px;
+  gap: 10px;
+  margin-top: 13px;
+}
+
+.label-size-hint,
+.label-size-error {
+  margin: 8px 0 0;
+  color: #65717f;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.label-size-error {
+  color: #ae5262;
+}
+
+.label-size-error:empty {
+  display: none;
+}
+
+.label-size-fields input[aria-invalid="true"] {
+  border-color: #cd7782;
+}
+
 .upload-card {
   display: grid;
   justify-items: center;
@@ -745,8 +772,8 @@
   gap: 6px;
 }
 
-.field:has(textarea),
-.field:nth-child(3) {
+.field-stack > .field:has(textarea),
+.field-stack > .field:nth-child(3) {
   grid-column: 1 / -1;
 }
 
@@ -923,6 +950,12 @@
   color: #20242b;
   background: #fff;
   font-family: "Noto Sans Thai", Tahoma, sans-serif;
+}
+
+.shipping-label__layout {
+  display: flex;
+  flex: none;
+  flex-direction: column;
 }
 
 .shipping-label--preview {
