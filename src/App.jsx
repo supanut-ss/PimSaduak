@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import JsBarcode from 'jsbarcode';
 import QRCode from 'qrcode';
 import './App.css';
@@ -23,6 +23,13 @@ import {
   toMillimeters,
   validateCustomLabelSize,
 } from './labelSizes';
+import {
+  createHistoryRecord,
+  deleteHistoryRecord,
+  filterHistoryRecords,
+  listHistoryRecords,
+  saveHistoryRecord,
+} from './historyStore';
 
 const initialForm = {
   recipientName: '',
@@ -548,6 +555,39 @@ function ShippingLabel({
   );
 }
 
+function HistoryEntry({ record, pendingDelete, isReprinting, onReprint, onDelete, onCancelDelete }) {
+  const date = new Date(record.createdAt);
+  const dateText = Number.isNaN(date.valueOf())
+    ? ''
+    : new Intl.DateTimeFormat('th-TH', { dateStyle: 'medium', timeStyle: 'short' }).format(date);
+  const firstRecipient = String(record.labels[0]?.form?.recipientName ?? '').trim();
+  const summary = record.labelCount > 1
+    ? `${record.labelCount} รายการ${firstRecipient ? ` · ${firstRecipient}` : ''}`
+    : firstRecipient || 'ฉลากพัสดุ';
+
+  return (
+    <li className="history-entry">
+      <div className="history-entry__details">
+        <strong>{summary}</strong>
+        <span>{[dateText, record.source === 'reprint' ? 'พิมพ์ซ้ำ' : 'คำขอพิมพ์', record.sizeText].filter(Boolean).join(' · ')}</span>
+      </div>
+      <div className="history-entry__actions">
+        <button type="button" onClick={() => onReprint(record)} disabled={isReprinting}>
+          {isReprinting ? 'กำลังเตรียม…' : 'พิมพ์ซ้ำ'}
+        </button>
+        {pendingDelete ? (
+          <>
+            <button className="history-entry__delete-confirm" type="button" onClick={() => onDelete(record.id)}>ยืนยันลบ</button>
+            <button className="history-entry__cancel" type="button" onClick={onCancelDelete}>ยกเลิก</button>
+          </>
+        ) : (
+          <button className="history-entry__delete" type="button" onClick={() => onDelete(record.id)}>ลบ</button>
+        )}
+      </div>
+    </li>
+  );
+}
+
 function App() {
   const [form, setForm] = useState(initialForm);
   const [codeType, setCodeType] = useState('none');
@@ -569,6 +609,15 @@ function App() {
   const [batchPreviewQrResult, setBatchPreviewQrResult] = useState({ key: '', dataUrl: '' });
   const [printBatch, setPrintBatch] = useState([]);
   const [printBatchReady, setPrintBatchReady] = useState(false);
+  const [historyRecords, setHistoryRecords] = useState([]);
+  const [historyQuery, setHistoryQuery] = useState('');
+  const [historyLoading, setHistoryLoading] = useState(true);
+  const [historyError, setHistoryError] = useState('');
+  const [historyMessage, setHistoryMessage] = useState('');
+  const [isHistoryOpen, setIsHistoryOpen] = useState(false);
+  const [pendingDeleteId, setPendingDeleteId] = useState('');
+  const [reprintingId, setReprintingId] = useState('');
+  const [historyPrintJob, setHistoryPrintJob] = useState(null);
   const fileInputRef = useRef(null);
   const selectedLabelPreset = LABEL_PRESETS.find((preset) => preset.id === labelPresetId);
   const customSizeValidation = validateCustomLabelSize(customLabelWidth, customLabelHeight, customLabelUnit);
@@ -584,8 +633,15 @@ function App() {
     labelHeightMm,
     labelPresetId === CUSTOM_LABEL_PRESET_ID ? customLabelUnit : 'cm',
   );
-  const labelWidthCss = String(Number(labelWidthMm.toFixed(2)));
-  const labelHeightCss = String(Number(labelHeightMm.toFixed(2)));
+  const printWidthMm = historyPrintJob?.widthMm ?? labelWidthMm;
+  const printHeightMm = historyPrintJob?.heightMm ?? labelHeightMm;
+  const printLabelScale = getLabelScale(printWidthMm, printHeightMm);
+  const labelWidthCss = String(Number(printWidthMm.toFixed(2)));
+  const labelHeightCss = String(Number(printHeightMm.toFixed(2)));
+  const filteredHistoryRecords = useMemo(
+    () => filterHistoryRecords(historyRecords, historyQuery),
+    [historyRecords, historyQuery],
+  );
   const hasRecipient = Boolean(form.recipientName.trim() && form.recipientAddress.trim());
   const codeError = getCodeError(codeType, codeValue);
   const qrDataUrl = qrResult.value === codeValue ? qrResult.dataUrl : '';
@@ -611,6 +667,35 @@ function App() {
   useEffect(() => {
     if (entryMode === 'batch') import('xlsx').catch(() => {});
   }, [entryMode]);
+
+  useEffect(() => {
+    let cancelled = false;
+    listHistoryRecords()
+      .then((records) => {
+        if (!cancelled) {
+          setHistoryRecords(records);
+          setHistoryError('');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setHistoryError('เปิดประวัติไม่ได้ เบราว์เซอร์นี้อาจปิดการเก็บข้อมูลไว้');
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    function handleAfterPrint() {
+      setHistoryPrintJob(null);
+      setPrintBatch([]);
+    }
+
+    window.addEventListener('afterprint', handleAfterPrint);
+    return () => window.removeEventListener('afterprint', handleAfterPrint);
+  }, []);
 
   useEffect(() => {
     if (codeType !== 'qr' || codeError) {
@@ -775,6 +860,82 @@ function App() {
     setCustomLabelUnit(nextUnit);
   }
 
+  async function persistPrintRequest(labels, source, size = {}) {
+    try {
+      const widthMm = size.widthMm ?? labelWidthMm;
+      const heightMm = size.heightMm ?? labelHeightMm;
+      const unit = size.unit ?? (labelPresetId === CUSTOM_LABEL_PRESET_ID ? customLabelUnit : 'cm');
+      const record = createHistoryRecord({
+        labels,
+        widthMm,
+        heightMm,
+        unit,
+        sizeText: size.sizeText ?? formatLabelSize(widthMm, heightMm, unit),
+        source,
+      });
+      await saveHistoryRecord(record);
+      setHistoryRecords((current) => [record, ...current].sort((first, second) => (
+        second.createdAt.localeCompare(first.createdAt)
+      )));
+      setHistoryError('');
+      setHistoryMessage('บันทึกคำขอพิมพ์ไว้ในประวัติแล้ว');
+    } catch {
+      setHistoryError('บันทึกประวัติไม่สำเร็จ ตรวจการตั้งค่าพื้นที่จัดเก็บของเบราว์เซอร์');
+      setHistoryMessage('');
+    }
+  }
+
+  async function handleHistoryReprint(record) {
+    setReprintingId(record.id);
+    setHistoryError('');
+    setHistoryMessage('กำลังเตรียมฉลากจากประวัติ…');
+    try {
+      const labels = await Promise.all(record.labels.map(async (label) => {
+        const codeType = label.codeType ?? 'none';
+        const codeValue = label.codeValue ?? '';
+        const codeError = getCodeError(codeType, codeValue);
+        if (codeError) throw new Error(codeError);
+
+        return {
+          ...label,
+          codeType,
+          codeValue,
+          qrDataUrl: codeType === 'qr' ? await generateQrDataUrl(codeValue) : '',
+        };
+      }));
+      const size = {
+        widthMm: record.widthMm,
+        heightMm: record.heightMm,
+        unit: record.unit,
+        sizeText: record.sizeText,
+      };
+      setHistoryPrintJob({ ...size, labels });
+      setPrintBatchReady(true);
+      void persistPrintRequest(labels, 'reprint', size);
+    } catch {
+      setHistoryMessage('เตรียมฉลากสำหรับพิมพ์ซ้ำไม่สำเร็จ ตรวจข้อมูลในรายการนี้');
+    } finally {
+      setReprintingId('');
+    }
+  }
+
+  async function handleHistoryDelete(recordId) {
+    if (pendingDeleteId !== recordId) {
+      setPendingDeleteId(recordId);
+      return;
+    }
+
+    try {
+      await deleteHistoryRecord(recordId);
+      setHistoryRecords((current) => current.filter((record) => record.id !== recordId));
+      setPendingDeleteId('');
+      setHistoryError('');
+      setHistoryMessage('ลบรายการออกจากประวัติแล้ว');
+    } catch {
+      setHistoryError('ลบรายการไม่สำเร็จ กรุณาลองอีกครั้ง');
+    }
+  }
+
   async function handlePrint(event) {
     event.preventDefault();
     if (!labelSizeValid) {
@@ -786,6 +947,8 @@ function App() {
         document.getElementById('code-value')?.focus();
         return;
       }
+      setHistoryMessage('');
+      void persistPrintRequest([{ form, codeType, codeValue }], 'single');
       window.print();
       return;
     }
@@ -809,6 +972,8 @@ function App() {
           : '',
       })));
       setPrintBatch(labels);
+      setHistoryMessage('');
+      void persistPrintRequest(labels, 'batch');
       setPrintBatchReady(true);
     } catch {
       setBatchNotice('สร้าง QR Code บางรายการไม่สำเร็จ กรุณาตรวจข้อมูลโค้ดแล้วลองอีกครั้ง');
@@ -865,16 +1030,83 @@ function App() {
               <h1>ทำใบแปะหน้าพัสดุ</h1>
               <p className="page-heading__description">กรอกข้อมูลเองหรือเลือกไฟล์รายการ แล้วตรวจฉลากก่อนพิมพ์</p>
             </div>
-            <div className="page-meta" aria-label="ขนาดฉลากปัจจุบัน">
-              <span className="page-meta__icon" aria-hidden="true">
-                <svg viewBox="0 0 24 24" fill="none">
-                  <path d="M5 4.75h14v14.5H5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
-                  <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                </svg>
-              </span>
-              <span><strong>{entryMode === 'single' ? 1 : includedBatchRows.length} ใบ</strong><small>{labelSizeText}</small></span>
+            <div className="page-actions">
+              <div className="page-meta" aria-label="ขนาดฉลากปัจจุบัน">
+                <span className="page-meta__icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" fill="none">
+                    <path d="M5 4.75h14v14.5H5z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" />
+                    <path d="M8 8h8M8 11h8M8 14h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                  </svg>
+                </span>
+                <span><strong>{entryMode === 'single' ? 1 : includedBatchRows.length} ใบ</strong><small>{labelSizeText}</small></span>
+              </div>
+              <button
+                className="history-toggle"
+                type="button"
+                aria-expanded={isHistoryOpen}
+                aria-controls="print-history"
+                onClick={() => setIsHistoryOpen((open) => !open)}
+              >
+                <span aria-hidden="true">◷</span>
+                ประวัติ{historyRecords.length > 0 ? ` (${historyRecords.length})` : ''}
+              </button>
             </div>
           </div>
+
+          <section
+            className="history-panel"
+            id="print-history"
+            aria-labelledby="print-history-heading"
+            hidden={!isHistoryOpen}
+          >
+            <div className="history-panel__heading">
+              <div>
+                <h2 id="print-history-heading">ประวัติคำขอพิมพ์</h2>
+                <p>ข้อมูลเก็บไว้ในเบราว์เซอร์นี้ ค้นหา พิมพ์ซ้ำ หรือลบรายการได้</p>
+              </div>
+              <label className="history-search" htmlFor="history-search">
+                <span>ค้นหา</span>
+                <input
+                  id="history-search"
+                  type="search"
+                  value={historyQuery}
+                  onChange={(event) => setHistoryQuery(event.target.value)}
+                  placeholder="ชื่อผู้รับ เบอร์โทร หรือโค้ด"
+                />
+              </label>
+            </div>
+
+            {historyLoading ? (
+              <p className="history-state" role="status">กำลังโหลดประวัติ…</p>
+            ) : historyError ? (
+              <p className="history-state history-state--error" role="alert">{historyError}</p>
+            ) : filteredHistoryRecords.length > 0 ? (
+              <ul className="history-list">
+                {filteredHistoryRecords.map((record) => (
+                  <HistoryEntry
+                    key={record.id}
+                    record={record}
+                    pendingDelete={pendingDeleteId === record.id}
+                    isReprinting={reprintingId === record.id}
+                    onReprint={handleHistoryReprint}
+                    onDelete={handleHistoryDelete}
+                    onCancelDelete={() => setPendingDeleteId('')}
+                  />
+                ))}
+              </ul>
+            ) : (
+              <div className="history-empty-state">
+                <strong>{historyQuery ? 'ไม่พบรายการที่ค้นหา' : 'ยังไม่มีประวัติการพิมพ์'}</strong>
+                <span>{historyQuery ? 'ลองใช้ชื่อ เบอร์โทร หรือข้อมูลโค้ดคำอื่น' : 'เมื่อกดพิมพ์ รายการจะปรากฏที่นี่'}</span>
+              </div>
+            )}
+
+            {historyError && historyRecords.length > 0 && (
+              <p className="history-state history-state--error" role="alert">{historyError}</p>
+            )}
+            {historyMessage && <p className="history-state history-state--success" role="status">{historyMessage}</p>}
+            <p className="history-panel__note">ประวัตินี้บันทึกเมื่อเปิดหน้าต่างพิมพ์ เบราว์เซอร์ไม่สามารถยืนยันได้ว่าพิมพ์ออกกระดาษสำเร็จ</p>
+          </section>
 
           <div className="work-grid">
             <form className="form-panel" id="label-form" onSubmit={handlePrint}>
@@ -1146,7 +1378,20 @@ function App() {
       </div>
 
       <main className="print-sheet" aria-label="ฉลากสำหรับพิมพ์">
-        {entryMode === 'single' ? (
+        {historyPrintJob ? historyPrintJob.labels.map((label, index) => (
+          <ShippingLabel
+            key={`history-print-label-${index}`}
+            form={label.form}
+            className="shipping-label--print"
+            codeType={label.codeType}
+            codeValue={label.codeValue}
+            qrDataUrl={label.qrDataUrl}
+            idPrefix={`history-print-label-${index + 1}`}
+            widthMm={historyPrintJob.widthMm}
+            heightMm={historyPrintJob.heightMm}
+            labelScale={printLabelScale}
+          />
+        )) : entryMode === 'single' ? (
           <ShippingLabel
             form={form}
             className="shipping-label--print"
@@ -1154,9 +1399,9 @@ function App() {
             codeValue={codeValue}
             qrDataUrl={qrDataUrl}
             idPrefix="print-label"
-            widthMm={labelWidthMm}
-            heightMm={labelHeightMm}
-            labelScale={labelScale}
+            widthMm={printWidthMm}
+            heightMm={printHeightMm}
+            labelScale={printLabelScale}
           />
         ) : printBatch.map((label, index) => (
           <ShippingLabel
@@ -1167,9 +1412,9 @@ function App() {
             codeValue={label.codeValue}
             qrDataUrl={label.qrDataUrl}
             idPrefix={`print-label-${index + 1}`}
-            widthMm={labelWidthMm}
-            heightMm={labelHeightMm}
-            labelScale={labelScale}
+            widthMm={printWidthMm}
+            heightMm={printHeightMm}
+            labelScale={printLabelScale}
           />
         ))}
       </main>

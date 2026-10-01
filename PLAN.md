@@ -76,11 +76,12 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Acceptance: the preview aspect ratio and print page size follow the selected dimensions.
 - Verification: `npm test` and `npm run build` pass; browser checks confirmed centimeter/inch conversion, a 4 × 6 inch print rule, validation for unsupported dimensions, and no horizontal overflow at 320 px, 768 px, and 1024 px.
 
-### Step 5 — Local history and reprint
+### Step 5 — Local history and reprint (complete)
 
-- Store print batches and label snapshots in IndexedDB on the current browser.
-- Add history search, reprint, and delete actions.
+- Store each print request in IndexedDB on the current browser, including label contents, code values, and the original dimensions.
+- Add history search, reprint, and a two-step delete action. Reprints create a new history entry.
 - Acceptance: history survives reload in the same browser and reprints the original label content and size.
+- Verification: `npm test` and `npm run build` pass; browser checks confirmed that a request survives a reload, recipient search finds it, reprint creates a new entry with the saved size, and a history entry can be deleted. Browser history records print requests; the browser cannot confirm physical output.
 
 ### Step 6 — Usability pass
 
