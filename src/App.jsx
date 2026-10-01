@@ -540,7 +540,8 @@ function ShippingLabel({
   const layoutStyle = {
     width: `${100 / labelScale}%`,
     height: `${100 / labelScale}%`,
-    zoom: labelScale,
+    transform: `scale(${labelScale})`,
+    transformOrigin: 'top left',
   };
 
   return (
