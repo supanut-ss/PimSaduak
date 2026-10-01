@@ -822,6 +822,31 @@
   border-top: 1px solid #edf0f4;
 }
 
+.batch-row__editor-shell[hidden] {
+  display: none;
+}
+
+.batch-field__error {
+  display: block;
+  margin: 6px 0 0;
+  color: #a43d46;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.batch-row__editor .field input[aria-invalid="true"],
+.batch-row__editor .field textarea[aria-invalid="true"],
+.batch-row__editor .field select[aria-invalid="true"] {
+  border-color: #ce7379;
+  background: #fffafa;
+}
+
+.batch-row__editor .field input[aria-invalid="true"]:focus,
+.batch-row__editor .field textarea[aria-invalid="true"]:focus,
+.batch-row__editor .field select[aria-invalid="true"]:focus {
+  box-shadow: 0 0 0 3px rgba(206, 115, 121, 0.16);
+}
+
 .batch-row__editor .field-stack {
   gap: 11px;
 }
@@ -1381,6 +1406,11 @@
 .print-button:hover {
   background: #6757a9;
   box-shadow: 0 10px 20px rgba(117, 101, 183, 0.28);
+}
+
+.print-button:focus-visible {
+  outline: 3px solid rgba(117, 101, 183, 0.3);
+  outline-offset: 3px;
 }
 
 .print-button:active {

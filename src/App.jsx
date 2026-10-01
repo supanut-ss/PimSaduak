@@ -245,12 +245,42 @@ const batchFieldDefinitions = [
   { name: 'senderAddress', label: 'ที่อยู่ผู้ส่ง', placeholder: 'บ้านเลขที่ ถนน แขวง/ตำบล เขต/อำเภอ จังหวัด รหัสไปรษณีย์', multiline: true },
 ];
 
+function getBatchFieldError(item, fieldName) {
+  const { form, typeError } = item;
+
+  if (fieldName === 'recipientName' && !form.recipientName.trim()) return 'กรอกชื่อผู้รับ';
+  if (fieldName === 'recipientAddress' && !form.recipientAddress.trim()) return 'กรอกที่อยู่ผู้รับ';
+
+  if (fieldName === 'codeType') {
+    if (typeError) return typeError;
+    if (form.codeType === 'none' && form.codeValue.trim()) {
+      return 'ลบข้อมูลโค้ดหรือเลือก QR Code หรือ Barcode';
+    }
+  }
+
+  if (fieldName === 'codeValue' && !typeError) {
+    if (form.codeType === 'none' && form.codeValue.trim()) {
+      return 'ลบข้อมูลโค้ดหรือเลือก QR Code หรือ Barcode';
+    }
+    return getCodeError(form.codeType, form.codeValue);
+  }
+
+  return '';
+}
+
 function BatchRowFields({ item, onChange }) {
+  const codeTypeError = getBatchFieldError(item, 'codeType');
+  const codeTypeErrorId = `${item.id}-codeType-error`;
+  const codeValueError = getBatchFieldError(item, 'codeValue');
+  const codeValueErrorId = `${item.id}-codeValue-error`;
+
   return (
     <div className="batch-row__editor">
       <div className="field-stack">
         {batchFieldDefinitions.map((field) => {
           const id = `${item.id}-${field.name}`;
+          const error = getBatchFieldError(item, field.name);
+          const errorId = `${id}-error`;
           return (
             <label className="field" htmlFor={id} key={field.name}>
               <span className="field__label">
@@ -265,6 +295,8 @@ function BatchRowFields({ item, onChange }) {
                   value={item.form[field.name]}
                   onChange={(event) => onChange(item.id, field.name, event.target.value)}
                   placeholder={field.placeholder}
+                  aria-invalid={error ? 'true' : undefined}
+                  aria-describedby={error ? errorId : undefined}
                 />
               ) : (
                 <input
@@ -275,8 +307,11 @@ function BatchRowFields({ item, onChange }) {
                   onChange={(event) => onChange(item.id, field.name, event.target.value)}
                   placeholder={field.placeholder}
                   inputMode={field.type === 'tel' ? 'tel' : undefined}
+                  aria-invalid={error ? 'true' : undefined}
+                  aria-describedby={error ? errorId : undefined}
                 />
               )}
+              {error && <span className="batch-field__error" id={errorId}>{error}</span>}
             </label>
           );
         })}
@@ -290,11 +325,14 @@ function BatchRowFields({ item, onChange }) {
             name={`${item.id}-codeType`}
             value={item.form.codeType}
             onChange={(event) => onChange(item.id, 'codeType', event.target.value)}
+            aria-invalid={codeTypeError ? 'true' : undefined}
+            aria-describedby={codeTypeError ? codeTypeErrorId : undefined}
           >
             <option value="none">ไม่ใส่</option>
             <option value="qr">QR Code</option>
             <option value="barcode">Barcode</option>
           </select>
+          {codeTypeError && <span className="batch-field__error" id={codeTypeErrorId}>{codeTypeError}</span>}
         </label>
         <label className="field" htmlFor={`${item.id}-codeValue`}>
           <span className="field__label">ข้อมูลโค้ด</span>
@@ -306,7 +344,10 @@ function BatchRowFields({ item, onChange }) {
             onChange={(event) => onChange(item.id, 'codeValue', event.target.value)}
             placeholder="เว้นว่างเมื่อไม่ใช้โค้ด"
             maxLength={item.form.codeType === 'barcode' ? 30 : item.form.codeType === 'qr' ? 180 : 512}
+            aria-invalid={codeValueError ? 'true' : undefined}
+            aria-describedby={codeValueError ? codeValueErrorId : undefined}
           />
+          {codeValueError && <span className="batch-field__error" id={codeValueErrorId}>{codeValueError}</span>}
         </label>
       </div>
     </div>
@@ -417,6 +458,7 @@ function BatchImportSection({
 function BatchImportRow({ item, onToggleEdit, onToggleIncluded, onFieldChange }) {
   const errors = getImportedRowErrors(item.form, item.typeError);
   const isValid = errors.length === 0;
+  const editorId = `batch-row-${item.id}-editor`;
 
   return (
     <article className={`batch-row${isValid ? '' : ' batch-row--invalid'}`}>
@@ -453,13 +495,16 @@ function BatchImportRow({ item, onToggleEdit, onToggleIncluded, onFieldChange })
           className="text-button"
           type="button"
           aria-expanded={item.editing}
+          aria-controls={editorId}
           onClick={() => onToggleEdit(item.id)}
         >
           {item.editing ? 'ปิดการแก้ไข' : 'แก้ข้อมูล'}
         </button>
       </div>
 
-      {item.editing && <BatchRowFields item={item} onChange={onFieldChange} />}
+      <div className="batch-row__editor-shell" id={editorId} hidden={!item.editing}>
+        <BatchRowFields item={item} onChange={onFieldChange} />
+      </div>
     </article>
   );
 }
