@@ -27,8 +27,11 @@ if (-not (Test-Path -LiteralPath $entryFile -PathType Leaf)) {
 }
 
 $entryHtml = [System.IO.File]::ReadAllText($entryFile)
-if ($entryHtml -notmatch "<title>[^<]*Easy Print Label</title>") {
-    throw "The production entry file does not contain the Easy Print Label title."
+$hasTitle = $entryHtml -match '<title>\s*[^<]+\s*</title>'
+$hasDescription = $entryHtml -match 'name="description"'
+$hasCanonicalUrl = $entryHtml -match 'rel="canonical"\s+href="https://pimsaduak\.drivetodev\.online/"'
+if (-not $hasTitle -or -not $hasDescription -or -not $hasCanonicalUrl) {
+    throw "The production entry file is missing its title, description, or canonical URL."
 }
 
 $files = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File | Sort-Object @{ Expression = { if ($_.Name -eq "index.html") { 1 } else { 0 } } }, FullName)
