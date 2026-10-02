@@ -24,6 +24,7 @@ import {
   validateCustomLabelSize,
 } from './labelSizes';
 import {
+  DEFAULT_LABEL_BRAND_NAME,
   createHistoryRecord,
   deleteHistoryRecord,
   filterHistoryRecords,
@@ -39,6 +40,19 @@ const initialForm = {
   senderPhone: '',
   senderAddress: '',
 };
+
+const LABEL_BRAND_STORAGE_KEY = 'pimsaduak-label-brand';
+
+function readSavedLabelBrandName() {
+  if (typeof window === 'undefined') return DEFAULT_LABEL_BRAND_NAME;
+
+  try {
+    const savedName = window.localStorage.getItem(LABEL_BRAND_STORAGE_KEY);
+    return savedName === null ? DEFAULT_LABEL_BRAND_NAME : savedName.slice(0, 40);
+  } catch {
+    return DEFAULT_LABEL_BRAND_NAME;
+  }
+}
 
 function Field({ label, name, value, onChange, placeholder, type = 'text', required = false }) {
   const autoComplete = name === 'recipientName'
@@ -193,6 +207,30 @@ function LabelSizeControls({
         </>
       )}
     </section>
+  );
+}
+
+function LabelBrandControl({ value, onChange }) {
+  return (
+    <div className="label-brand-control">
+      <label className="field" htmlFor="label-brand-name">
+        <span className="field__label">ชื่อแบรนด์บนฉลาก</span>
+        <input
+          id="label-brand-name"
+          name="labelBrandName"
+          type="text"
+          value={value}
+          onChange={onChange}
+          placeholder={DEFAULT_LABEL_BRAND_NAME}
+          maxLength={40}
+          autoComplete="organization"
+          aria-describedby="label-brand-name-hint"
+        />
+      </label>
+      <p className="label-brand-control__hint" id="label-brand-name-hint">
+        แสดงที่หัวฉลากทุกใบ และบันทึกไว้ในเบราว์เซอร์นี้
+      </p>
+    </div>
   );
 }
 
@@ -519,6 +557,7 @@ function ShippingLabel({
   widthMm = 100,
   heightMm = 150,
   labelScale = 1,
+  brandName = DEFAULT_LABEL_BRAND_NAME,
 }) {
   const isPreview = className.includes('--preview');
   const labelId = idPrefix ?? (className || 'preview');
@@ -528,6 +567,7 @@ function ShippingLabel({
   const senderName = form.senderName.trim() || (isPreview ? 'ชื่อผู้ส่ง' : '');
   const senderPhone = form.senderPhone.trim();
   const senderAddress = form.senderAddress.trim() || (isPreview ? 'ที่อยู่ผู้ส่ง' : '');
+  const printableBrandName = String(brandName ?? '').trim();
   const hasSender = Boolean(senderName || senderPhone || senderAddress);
   const codeError = getCodeError(codeType, codeValue);
   const hasCode = !codeError && (codeType === 'qr' ? Boolean(qrDataUrl) : codeType === 'barcode');
@@ -558,7 +598,7 @@ function ShippingLabel({
               <path d="m4.5 8.5 9.5 5 9.5-5M14 14v10.2" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
             </svg>
           </span>
-          <span className="shipping-label__wordmark">PimSaduak</span>
+          {printableBrandName && <span className="shipping-label__wordmark">{printableBrandName}</span>}
           <span className="shipping-label__document">ใบแปะหน้าพัสดุ</span>
         </header>
 
@@ -592,9 +632,7 @@ function ShippingLabel({
         )}
 
         <footer className="shipping-label__footer">
-          <span>ขอบคุณที่อุดหนุน</span>
-          <span className="shipping-label__footer-dot" aria-hidden="true" />
-          <span>ส่งด้วยความใส่ใจ</span>
+          <span className="shipping-label__footer-brand">Pim Saduak by Drivetodev.online</span>
         </footer>
       </div>
     </article>
@@ -636,6 +674,7 @@ function HistoryEntry({ record, pendingDelete, isReprinting, onReprint, onDelete
 
 function App() {
   const [form, setForm] = useState(initialForm);
+  const [labelBrandName, setLabelBrandName] = useState(readSavedLabelBrandName);
   const [codeType, setCodeType] = useState('none');
   const [codeValue, setCodeValue] = useState('');
   const [qrResult, setQrResult] = useState({ value: '', dataUrl: '' });
@@ -665,6 +704,15 @@ function App() {
   const [reprintingId, setReprintingId] = useState('');
   const [historyPrintJob, setHistoryPrintJob] = useState(null);
   const fileInputRef = useRef(null);
+
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(LABEL_BRAND_STORAGE_KEY, labelBrandName);
+    } catch {
+      // Keep the current session usable when browser storage is unavailable.
+    }
+  }, [labelBrandName]);
+
   const selectedLabelPreset = LABEL_PRESETS.find((preset) => preset.id === labelPresetId);
   const customSizeValidation = validateCustomLabelSize(customLabelWidth, customLabelHeight, customLabelUnit);
   const labelDimensions = labelPresetId === CUSTOM_LABEL_PRESET_ID
@@ -906,13 +954,14 @@ function App() {
     setCustomLabelUnit(nextUnit);
   }
 
-  async function persistPrintRequest(labels, source, size = {}) {
+  async function persistPrintRequest(labels, source, size = {}, brandName = labelBrandName) {
     try {
       const widthMm = size.widthMm ?? labelWidthMm;
       const heightMm = size.heightMm ?? labelHeightMm;
       const unit = size.unit ?? (labelPresetId === CUSTOM_LABEL_PRESET_ID ? customLabelUnit : 'cm');
       const record = createHistoryRecord({
         labels,
+        brandName,
         widthMm,
         heightMm,
         unit,
@@ -955,9 +1004,10 @@ function App() {
         unit: record.unit,
         sizeText: record.sizeText,
       };
-      setHistoryPrintJob({ ...size, labels });
+      const brandName = record.brandName ?? labelBrandName;
+      setHistoryPrintJob({ ...size, labels, brandName });
       setPrintBatchReady(true);
-      void persistPrintRequest(labels, 'reprint', size);
+      void persistPrintRequest(labels, 'reprint', size, brandName);
     } catch {
       setHistoryMessage('เตรียมฉลากสำหรับพิมพ์ซ้ำไม่สำเร็จ ตรวจข้อมูลในรายการนี้');
     } finally {
@@ -1185,6 +1235,10 @@ function App() {
                 onUnitChange={handleCustomUnitChange}
                 onDimensionChange={handleCustomDimensionChange}
               />
+              <LabelBrandControl
+                value={labelBrandName}
+                onChange={(event) => setLabelBrandName(event.target.value)}
+              />
 
               {entryMode === 'single' ? (
               <>
@@ -1356,6 +1410,7 @@ function App() {
                 <div className="preview-stage__tape" aria-hidden="true" />
                 <ShippingLabel
                   form={previewForm}
+                  brandName={labelBrandName}
                   className="shipping-label--preview"
                   codeType={previewCodeType}
                   codeValue={previewCodeValue}
@@ -1428,6 +1483,7 @@ function App() {
           <ShippingLabel
             key={`history-print-label-${index}`}
             form={label.form}
+            brandName={historyPrintJob.brandName ?? labelBrandName}
             className="shipping-label--print"
             codeType={label.codeType}
             codeValue={label.codeValue}
@@ -1440,6 +1496,7 @@ function App() {
         )) : entryMode === 'single' ? (
           <ShippingLabel
             form={form}
+            brandName={labelBrandName}
             className="shipping-label--print"
             codeType={codeType}
             codeValue={codeValue}
@@ -1453,6 +1510,7 @@ function App() {
           <ShippingLabel
             key={`print-label-${index}`}
             form={label.form}
+            brandName={labelBrandName}
             className="shipping-label--print"
             codeType={label.codeType}
             codeValue={label.codeValue}

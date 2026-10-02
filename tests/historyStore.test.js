@@ -32,6 +32,7 @@ test('creates a local history snapshot with its original label size and copied f
   label.form.recipientName = 'changed after save';
 
   assert.equal(record.source, 'single');
+  assert.equal(record.brandName, 'Pim Saduak');
   assert.equal(record.sizeText, '4 × 6 นิ้ว');
   assert.equal(record.widthMm, 101.6);
   assert.equal(record.heightMm, 152.4);
@@ -39,6 +40,17 @@ test('creates a local history snapshot with its original label size and copied f
   assert.equal(record.labels[0].form.recipientName, 'คุณทดสอบ ใจดี');
   assert.equal(record.labels[0].form.codeType, undefined);
   assert.equal(record.labels[0].codeValue, 'ORDER-2026-001');
+});
+
+test('keeps a custom brand name in the history snapshot for reprints', () => {
+  const record = createHistoryRecord({
+    labels: [makeLabel()],
+    brandName: 'Pim Saduak Express',
+    widthMm: 100,
+    heightMm: 150,
+  });
+
+  assert.equal(record.brandName, 'Pim Saduak Express');
 });
 
 test('defaults batch records and searches recipient, address, code, and size', () => {
