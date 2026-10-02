@@ -1355,15 +1355,24 @@
 }
 
 .shipping-label__footer {
-  min-height: 25px;
+  min-height: 36px;
   margin-top: auto;
   display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   padding-top: 7px;
   border-top: 1px solid #d5d8dc;
   color: #6e737b;
   font-size: 8px;
+}
+
+.shipping-label__footer-message {
+  max-width: 100%;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  text-align: center;
 }
 
 .shipping-label__footer-brand {
@@ -1829,8 +1838,9 @@
   }
 
   .shipping-label--print .shipping-label__footer {
-    min-height: 7mm;
-    padding-top: 2mm;
-    font-size: 8pt;
+    min-height: 10mm;
+    gap: 0.4mm;
+    padding-top: 1.5mm;
+    font-size: 7pt;
   }
 }

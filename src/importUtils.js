@@ -161,7 +161,7 @@ export async function parseLabelFile(file) {
 
   const missingHeaders = ['recipientName', 'recipientAddress'].filter((field) => columns[field] < 0);
   if (missingHeaders.length) {
-    throw new Error('ไม่พบหัวคอลัมน์ชื่อผู้รับหรือที่อยู่ผู้รับ กรุณาใช้เทมเพลต PimSaduak');
+    throw new Error('ไม่พบหัวคอลัมน์ชื่อผู้รับหรือที่อยู่ผู้รับ กรุณาใช้เทมเพลตพิมพ์สะดวก');
   }
 
   const importedRows = rawRows.slice(1).map((row, rowIndex) => {
@@ -265,12 +265,12 @@ export async function downloadImportTemplate(format) {
     const content = createDelimitedTemplate(format);
     downloadBlob(
       new Blob([content], { type: `${isText ? 'text/plain' : 'text/csv'};charset=utf-8` }),
-      `PimSaduak-template.${isText ? 'txt' : 'csv'}`,
+      `พิมพ์สะดวก-template.${isText ? 'txt' : 'csv'}`,
     );
     return;
   }
 
   const XLSX = await import('xlsx');
   const workbook = createTemplateWorkbook(XLSX);
-  XLSX.writeFileXLSX(workbook, 'PimSaduak-template.xlsx', { cellStyles: true });
+  XLSX.writeFileXLSX(workbook, 'พิมพ์สะดวก-template.xlsx', { cellStyles: true });
 }

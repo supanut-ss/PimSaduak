@@ -27,8 +27,8 @@ if (-not (Test-Path -LiteralPath $entryFile -PathType Leaf)) {
 }
 
 $entryHtml = [System.IO.File]::ReadAllText($entryFile)
-if ($entryHtml -notmatch "<title>\s*PimSaduak") {
-    throw "The production entry file does not contain the PimSaduak title."
+if ($entryHtml -notmatch "<title>[^<]*Easy Print Label</title>") {
+    throw "The production entry file does not contain the Easy Print Label title."
 }
 
 $files = @(Get-ChildItem -LiteralPath $distRoot -Recurse -File | Sort-Object @{ Expression = { if ($_.Name -eq "index.html") { 1 } else { 0 } } }, FullName)

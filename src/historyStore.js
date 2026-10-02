@@ -3,7 +3,13 @@ import { formatLabelSize } from './labelSizes.js';
 export const HISTORY_DATABASE_NAME = 'pimsaduak-print-history';
 export const HISTORY_DATABASE_VERSION = 1;
 export const HISTORY_STORE_NAME = 'print-requests';
-export const DEFAULT_LABEL_BRAND_NAME = 'Pim Saduak';
+export const DEFAULT_LABEL_BRAND_NAME = 'พิมพ์สะดวก';
+
+export function migrateLegacyLabelBrandName(brandName, fallback = DEFAULT_LABEL_BRAND_NAME) {
+  if (brandName == null) return fallback;
+  const savedName = String(brandName).slice(0, 40);
+  return savedName === 'Pim Saduak' || savedName === 'PimSaduak' ? fallback : savedName;
+}
 
 let databasePromise;
 

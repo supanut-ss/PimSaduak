@@ -28,6 +28,7 @@ import {
   createHistoryRecord,
   deleteHistoryRecord,
   filterHistoryRecords,
+  migrateLegacyLabelBrandName,
   listHistoryRecords,
   saveHistoryRecord,
 } from './historyStore';
@@ -48,7 +49,7 @@ function readSavedLabelBrandName() {
 
   try {
     const savedName = window.localStorage.getItem(LABEL_BRAND_STORAGE_KEY);
-    return savedName === null ? DEFAULT_LABEL_BRAND_NAME : savedName.slice(0, 40);
+    return migrateLegacyLabelBrandName(savedName);
   } catch {
     return DEFAULT_LABEL_BRAND_NAME;
   }
@@ -632,7 +633,8 @@ function ShippingLabel({
         )}
 
         <footer className="shipping-label__footer">
-          <span className="shipping-label__footer-brand">Pim Saduak by Drivetodev.online</span>
+          <span className="shipping-label__footer-message">ขอบคุณที่อุดหนุน · ส่งด้วยความใส่ใจ</span>
+          <span className="shipping-label__footer-brand">พิมพ์สะดวก by Drivetodev.online</span>
         </footer>
       </div>
     </article>
@@ -1004,7 +1006,7 @@ function App() {
         unit: record.unit,
         sizeText: record.sizeText,
       };
-      const brandName = record.brandName ?? labelBrandName;
+      const brandName = migrateLegacyLabelBrandName(record.brandName, labelBrandName);
       setHistoryPrintJob({ ...size, labels, brandName });
       setPrintBatchReady(true);
       void persistPrintRequest(labels, 'reprint', size, brandName);
@@ -1101,7 +1103,7 @@ function App() {
       `}</style>
       <div className="screen-ui">
         <header className="topbar">
-          <a className="brand" href="#main" aria-label="PimSaduak หน้าหลัก">
+          <a className="brand" href="#main" aria-label="พิมพ์สะดวก หน้าหลัก">
             <span className="brand__icon" aria-hidden="true">
               <svg viewBox="0 0 32 32" fill="none">
                 <path d="M5 10 16 4l11 6v12l-11 6L5 22V10Z" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" />
@@ -1109,7 +1111,7 @@ function App() {
               </svg>
             </span>
             <span className="brand__text">
-              <strong>PimSaduak</strong>
+              <strong>พิมพ์สะดวก</strong>
               <span>Easy Print Label</span>
             </span>
           </a>
@@ -1474,7 +1476,7 @@ function App() {
 
         <footer className="app-footer">
           <span>ทำฉลากง่าย ๆ แล้วไปส่งพัสดุกัน</span>
-          <span>PimSaduak · {entryMode === 'single' ? '01 / 01' : 'นำเข้าหลายรายการ'}</span>
+          <span>พิมพ์สะดวก · {entryMode === 'single' ? '01 / 01' : 'นำเข้าหลายรายการ'}</span>
         </footer>
       </div>
 

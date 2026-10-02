@@ -1,6 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHistoryRecord, filterHistoryRecords } from '../src/historyStore.js';
+import {
+  createHistoryRecord,
+  filterHistoryRecords,
+  migrateLegacyLabelBrandName,
+} from '../src/historyStore.js';
 
 function makeLabel(name = 'คุณทดสอบ ใจดี') {
   return {
@@ -32,7 +36,7 @@ test('creates a local history snapshot with its original label size and copied f
   label.form.recipientName = 'changed after save';
 
   assert.equal(record.source, 'single');
-  assert.equal(record.brandName, 'Pim Saduak');
+  assert.equal(record.brandName, 'พิมพ์สะดวก');
   assert.equal(record.sizeText, '4 × 6 นิ้ว');
   assert.equal(record.widthMm, 101.6);
   assert.equal(record.heightMm, 152.4);
@@ -45,12 +49,19 @@ test('creates a local history snapshot with its original label size and copied f
 test('keeps a custom brand name in the history snapshot for reprints', () => {
   const record = createHistoryRecord({
     labels: [makeLabel()],
-    brandName: 'Pim Saduak Express',
+    brandName: 'พิมพ์สะดวก Express',
     widthMm: 100,
     heightMm: 150,
   });
 
-  assert.equal(record.brandName, 'Pim Saduak Express');
+  assert.equal(record.brandName, 'พิมพ์สะดวก Express');
+});
+
+test('migrates the previous built-in brand on saved settings and history reprints', () => {
+  assert.equal(migrateLegacyLabelBrandName('Pim Saduak'), 'พิมพ์สะดวก');
+  assert.equal(migrateLegacyLabelBrandName('PimSaduak'), 'พิมพ์สะดวก');
+  assert.equal(migrateLegacyLabelBrandName('Custom Shop'), 'Custom Shop');
+  assert.equal(migrateLegacyLabelBrandName(null, 'Current brand'), 'Current brand');
 });
 
 test('defaults batch records and searches recipient, address, code, and size', () => {
