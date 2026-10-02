@@ -11,11 +11,12 @@ import {
   validateCustomLabelSize,
 } from '../src/labelSizes.js';
 
-test('provides four practical standard label sizes with 10 × 15 cm as the default', () => {
+test('provides four practical standard label sizes with 100 × 150 mm as the default', () => {
   const standardSizes = LABEL_PRESETS.filter((preset) => preset.id !== 'custom');
 
   assert.equal(standardSizes.length, 4);
   assert.equal(DEFAULT_LABEL_PRESET_ID, '100x150');
+  assert.equal(standardSizes[0].label, '100 × 150 มม. · 10 × 15 ซม. · 4 × 6 นิ้ว');
   assert.deepEqual(
     [standardSizes[0].widthMm, standardSizes[0].heightMm],
     [100, 150],

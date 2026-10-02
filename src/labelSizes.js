@@ -5,7 +5,7 @@ export const MIN_LABEL_HEIGHT_MM = 85;
 export const MAX_LABEL_DIMENSION_MM = 500;
 
 export const LABEL_PRESETS = [
-  { id: '100x150', label: '10 × 15 ซม. · 4 × 6 นิ้ว', widthMm: 100, heightMm: 150 },
+  { id: '100x150', label: '100 × 150 มม. · 10 × 15 ซม. · 4 × 6 นิ้ว', widthMm: 100, heightMm: 150 },
   { id: '100x100', label: '10 × 10 ซม. · 4 × 4 นิ้ว', widthMm: 100, heightMm: 100 },
   { id: '100x200', label: '10 × 20 ซม. · 4 × 8 นิ้ว', widthMm: 100, heightMm: 200 },
   { id: 'a6', label: 'A6 · 10.5 × 14.8 ซม.', widthMm: 105, heightMm: 148 },
