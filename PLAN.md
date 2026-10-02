@@ -83,11 +83,13 @@ Help small sellers create readable parcel labels quickly from one page. The app 
 - Acceptance: history survives reload in the same browser and reprints the original label content and size.
 - Verification: `npm test` and `npm run build` pass; browser checks confirmed that a request survives a reload, recipient search finds it, reprint creates a new entry with the saved size, and a history entry can be deleted. Browser history records print requests; the browser cannot confirm physical output.
 
-### Step 6 — Usability pass
+### Step 6 — Usability pass (complete)
 
-- Check keyboard use, clear validation, small-screen layout, and print alignment.
-- Explain that browser data belongs to the current browser profile and may be cleared by browser settings.
-- Acceptance: complete one-label and multi-label flows with keyboard and pointer; confirm print output on supported browsers.
+- Add a visible keyboard focus indicator to the print action. Connect batch edit toggles to their controlled editors and associate imported-row field errors with the affected inputs.
+- Verify single-label keyboard entry updates the preview; verify batch import by pointer and batch editor open/close by keyboard, including error descriptions on invalid fields.
+- Keep the browser-profile storage and browser-settings clearing guidance visible in the history panel.
+- Verify responsive layouts at 320 px and 768 px, and confirm print page dimensions and preview rules in the browser. Physical alignment still depends on calibration with the target printer.
+- Verification: `npm test` passes all 10 tests, `npm run build` succeeds, and `git diff --check` is clean. Browser checks confirmed keyboard preview entry, local CSV import, keyboard batch editing, and field-level validation descriptions.
 
 ## Step 1 implementation notes
 
