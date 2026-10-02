@@ -1125,7 +1125,7 @@ function App() {
           <div className="page-heading">
             <div>
               <p className="page-heading__kicker">เริ่มต้นได้ในไม่กี่ขั้นตอน</p>
-              <h1>ทำใบแปะหน้าพัสดุ</h1>
+              <h1>สร้างใบปะหน้าพัสดุออนไลน์</h1>
               <p className="page-heading__description">กรอกข้อมูลเองหรือเลือกไฟล์รายการ แล้วตรวจฉลากก่อนพิมพ์</p>
             </div>
             <div className="page-actions">

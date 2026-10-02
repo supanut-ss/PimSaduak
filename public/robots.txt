@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://pimsaduak.drivetodev.online/sitemap.xml
